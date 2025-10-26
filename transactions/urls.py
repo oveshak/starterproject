@@ -13,6 +13,9 @@ router.register(r'cheques', views.ChequeViewSet, basename='cheques')
 router.register(r'affiliatecommissions', views.AffiliateCommissionViewSet, basename='affiliate-commissions')
 router.register(r'loantypes', views.LoanTypeViewSet, basename='loan-types')
 router.register(r'installmenttypes', views.InstallmentTypeViewSet, basename='installment-types')
+router.register(r'dailysavings', views.DailySavingViewSet, basename='dailysavings')
+router.register(r'transections', views.TransectionViewSet, basename='transections')
+
 router.register(r'installments', views.InstallmentViewSet, basename='installments')
 router.register(r'loans', views.LoanViewSet, basename='loans')
 

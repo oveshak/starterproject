@@ -2,7 +2,7 @@ from django.db import models
 from globalapp.models import Common
 from users.models import Area, Branch, Users
 from products.models import Product
-from contacts.models import Contact, Customer
+from contacts.models import Contact, Customer, CustomerGroup
 from simple_history.models import HistoricalRecords
 
 class Purchase(Common):
@@ -316,23 +316,18 @@ class AffiliateCommission(Common):
 
     def __str__(self):
         return f"{self.affiliate_user_name} - {self.commission_amount}"
+
+
 class LoanType(Common):
-    name = models.CharField(
-        max_length=150,
-        verbose_name="Name"
-    )
-    behaviour_type = models.JSONField(
-        default=list,  # empty list by default
-        blank=True,
-        null=True
-    )
-    # Use a unique related_name to avoid clashes
+    name = models.CharField(max_length=150, verbose_name="Name")
+    behaviour_type = models.JSONField(default=list, blank=True, null=True)
+
     loan_branch = models.ForeignKey(
-        Branch,
-        on_delete=models.CASCADE,
-        related_name="loan_types",  # unique reverse name
-        null=True,
-        blank=True,
+        Branch, 
+        on_delete=models.CASCADE, 
+        related_name="loan_types", 
+        null=True, 
+        blank=True, 
         verbose_name="Branch"
     )
 
@@ -343,16 +338,8 @@ class LoanType(Common):
 
     def __str__(self):
         return self.name
+ 
 
-
-    class Meta:
-        verbose_name = "Loan Type"
-        verbose_name_plural = "Loan Types"
-        ordering = ["name"]
-
-    def __str__(self):
-        return self.name
-    
 class InstallmentType(Common):
     TYPE_CHOICES = [
         ("daily", "Daily"),
@@ -382,19 +369,12 @@ class InstallmentType(Common):
     def __str__(self):
         return f"{self.get_type_display()} - {self.instalment_cullect}"
 
-class Installment(Common):
-    STATUS_CHOICES = [
-        ("paid", "Paid"),
-        ("due", "Due"),
-    ]
 
+class DailySaving(Common):
     customer_name = models.ForeignKey(
         Customer,
         on_delete=models.CASCADE,
         verbose_name="Customer"
-    )
-    installment_date = models.DateField(
-        verbose_name="Installment Date"
     )
     amount = models.DecimalField(
         max_digits=12,
@@ -408,56 +388,122 @@ class Installment(Common):
         blank=True,
         verbose_name="Received By"
     )
+    branch_name = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name="dailysavings_branches",
+        null=True,
+        blank=True,
+        verbose_name="Branch"
+    )
+    area_name = models.ForeignKey(
+        Area,
+        on_delete=models.CASCADE,
+        related_name="dailysavings_areas",
+        null=True,
+        blank=True,
+        verbose_name="Area"
+    )
+    
+    class Meta:
+        verbose_name = "DailySaving"
+        verbose_name_plural = "DailySavings"
+        ordering = ["amount"]
+
+    def __str__(self):
+        return f" {self.amount} "
+
+
+class Installment(Common):
+    STATUS_CHOICES = [
+        ("paid", "Paid"),
+        ("due", "Due"),
+    ]
+    
+    customer_name = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        verbose_name="Customer"
+    )
+    due_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        verbose_name="Due Amount"
+    )
+    installment_date = models.DateField(verbose_name="Installment Date")
+    installment_pay = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Installment Pay",
+        null=True,
+        blank=True,
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Amount")
+    received_by = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Received By"
+    )
     installment_status = models.CharField(
         max_length=10,
         choices=STATUS_CHOICES,
         verbose_name="Status"
     )
-    branch_name=models.ForeignKey(
+    branch_name = models.ForeignKey(
         Branch,
         on_delete=models.CASCADE,
-        related_name="brance",
+        related_name="installments_branches",
         null=True,
         blank=True,
         verbose_name="Branch"
-    
-    ) 
-    area_name=models.ForeignKey(
+    )
+    area_name = models.ForeignKey(
         Area,
         on_delete=models.CASCADE,
-        related_name="area",
+        related_name="installments_areas",
         null=True,
         blank=True,
         verbose_name="Area"
     )
     loan_id = models.CharField(max_length=20, default="N/A")
+    pay_from_account = models.BooleanField(
+        default=False,
+        verbose_name="Pay From Account"
+    )
+    
     class Meta:
         verbose_name = "Installment"
         verbose_name_plural = "Installments"
         ordering = ["-installment_date"]
 
     def __str__(self):
-        return f" {self.installment_date} - {self.amount} "
+        return f"{self.installment_date} - {self.amount} "
+
+    def is_extra_payment(self):
+        """Check if installment pay is greater than amount."""
+        if self.installment_pay:
+            return self.installment_pay > self.amount
+        return False
 
 
 class Loan(Common):
-    
-
     RECEIVE_TYPE_CHOICES = [
         ("cash", "Cash"),
         ("product", "Product"),
     ]
     
-    branch_name=models.ForeignKey(
+    branch_name = models.ForeignKey(
         Branch,
         on_delete=models.CASCADE,
         related_name="loan_branch_set",
         null=True,
         blank=True,
         verbose_name="Branch"
-    
     ) 
-    area_name=models.ForeignKey(
+    area_name = models.ForeignKey(
         Area,
         on_delete=models.CASCADE,
         related_name="loan_area_set",
@@ -509,9 +555,8 @@ class Loan(Common):
     first_down_payment = models.DecimalField(
         null=True,
         blank=True,
-         max_digits=12,
+        max_digits=12,
         decimal_places=2,
-        
         verbose_name="First Down Payment"
     )
     updated_at = models.DateTimeField(
@@ -529,3 +574,74 @@ class Loan(Common):
 
     def __str__(self):
         return f"{self.customer_name} - {self.amount} ({self.receive_type})"
+
+
+class Transection(Common):
+    TYPE_CHOICES = [
+        ("cashin", "Cash In"),
+        ("cashout", "Cash Out"),
+    ]
+    
+    transection_type = models.CharField(
+        max_length=10,
+        choices=TYPE_CHOICES,
+        verbose_name="Status"
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Amount"
+    )
+    customer_name = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        verbose_name="Customer Name"
+    )
+    received_by = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Received By"
+    )
+    modelname = models.CharField(max_length=200, verbose_name="Model Name", null=True, blank=True)
+    branch_name = models.ForeignKey(
+        Branch,  # Replace with your actual Branch model
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Branch Name"
+    )
+    area_name = models.ForeignKey(
+        Area,  # Replace with your actual Area model
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Area Name"
+    )
+    customer_group = models.ForeignKey(
+        CustomerGroup,  # Replace with your actual CustomerGroup model
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Customer Group"
+    )
+
+
+
+    def save(self, *args, **kwargs):
+        # Auto-populate from customer if not provided
+        if self.customer_name:
+            if not self.branch_name and hasattr(self.customer_name, 'branch_name'):
+                self.branch_name = self.customer_name.branch_name
+            
+            if not self.area_name and hasattr(self.customer_name, 'area_name'):
+                self.area_name = self.customer_name.area_name
+            
+            if not self.customer_group and hasattr(self.customer_name, 'customer_group'):
+                self.customer_group = self.customer_name.customer_group
+        
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.transection_type} - {self.amount} for {self.modelname}"

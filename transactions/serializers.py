@@ -6,7 +6,7 @@ from products.models import Product
 from products.serializers import ProductSerializer
 from users.models import Area, Branch, Users
 from users.serializers import AreaSerializer, BranchSerializer, UsersSerializer
-from .models import Purchase, PurchaseItem, PurchaseReturn, Sale, SaleItem, Payment, Cheque, AffiliateCommission,LoanType, InstallmentType, Installment, Loan
+from .models import DailySaving, Purchase, PurchaseItem, PurchaseReturn, Sale, SaleItem, Payment, Cheque, AffiliateCommission,LoanType, InstallmentType, Installment, Loan, Transection
 from globalapp.serializers import GlobalSerializers
 
 
@@ -253,7 +253,10 @@ class InstallmentTypeSerializer(GlobalSerializers):
         model = InstallmentType
         fields = '__all__'
 
-
+class DailySavingSerializer(GlobalSerializers):
+    class Meta:
+        model = DailySaving
+        fields = '__all__'  # or specify the fields you want to include
 
 class InstallmentSerializer(serializers.ModelSerializer):
     # Accept IDs for input
@@ -295,6 +298,17 @@ class LoanSerializer(GlobalSerializers):
     class Meta:
         model = Loan
         fields = '__all__'
+
+
+
+class TransectionSerializer(serializers.ModelSerializer):
+    # Nested serializers to show detailed information for customer and received_by fields
+    customer_name = serializers.StringRelatedField()
+    received_by = serializers.StringRelatedField(allow_null=True)
+    
+    class Meta:
+        model = Transection
+        fields =  '__all__'
 
 # ---------------- Installment ----------------
 # class InstallmentSerializer(GlobalSerializers):

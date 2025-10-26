@@ -1,8 +1,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from .models import (
-    Installment, InstallmentType, Loan, LoanType, Purchase, PurchaseItem, PurchaseReturn,
-    Sale, SaleItem, Payment, Cheque, AffiliateCommission
+    DailySaving, Installment, InstallmentType, Loan, LoanType, Purchase, PurchaseItem, PurchaseReturn,
+    Sale, SaleItem, Payment, Cheque, AffiliateCommission, Transection
 )
 
 @admin.register(Purchase)
@@ -68,6 +68,13 @@ class InstallmentTypeAdmin(ModelAdmin):
     search_fields = ['type']
     list_filter = ['type']
 
+@admin.register(DailySaving)
+class DailySavingAdmin(ModelAdmin):
+    list_display = ('customer_name', 'amount', 'received_by', 'branch_name', 'area_name')  # Fields to display
+    search_fields = ('customer_name__name', 'branch_name__name', 'area_name__name')  # Searchable fields
+    list_filter = ('branch_name', 'area_name')  # Fields to filter by
+    ordering = ('amount',)
+
 
 @admin.register(Installment)
 class InstallmentAdmin(ModelAdmin):
@@ -80,3 +87,23 @@ class LoanAdmin(ModelAdmin):
     search_fields = ['customer_name__full_name', 'customer_name__mobile_number', 'loan_type__name']
     list_filter = ['receive_type', 'pay_from_account', 'loan_type', 'installment_type']
     filter_horizontal = ['installment']  # for ManyToMany field
+
+@admin.register(Transection)
+class TransectionAdmin(ModelAdmin):
+    # List display will show these fields in the admin panel
+    list_display = ('id', 'transection_type', 'amount', 'customer_name', 'received_by', 'modelname', 'created_at')
+    
+    # Filter options in the sidebar
+    list_filter = ('transection_type', 'customer_name', 'received_by')
+    
+    # Search bar functionality
+    search_fields = ('customer_name', 'transection_type', 'amount')
+    
+    # Ordering of the records (optional)
+    ordering = ['-created_at']
+    
+    # Add/edit form fields customization
+    fields = ('transection_type', 'amount', 'customer_name', 'received_by', 'modelname', 'created_at')
+    
+    # You can also define readonly_fields to make fields read-only if needed
+    readonly_fields = ('created_at',)

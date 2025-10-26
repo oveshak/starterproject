@@ -202,3 +202,4 @@ class BranchProductStock(Common):
 
     def __str__(self):
         return f"{self.product_name} - {self.branch_name}"
+

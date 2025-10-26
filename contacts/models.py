@@ -1,20 +1,34 @@
 from django.db import models
 from globalapp.models import Common
-from users.models import Branch, Users
+from users.models import Area, Branch, Users
 from simple_history.models import HistoricalRecords
 
 
 class CustomerGroup(Common):
-    name = models.CharField(
-        max_length=100,
-        verbose_name="Group Name"
-    )
+    name = models.CharField(max_length=100, verbose_name="Group Name")
+
+    # যদি Customer একই অ্যাপে থাকে, model string "Customer" দিন (case-sensitive)
     group_leader_user = models.ForeignKey(
-        Users,
+        "Customer",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        verbose_name="Group Leader User"
+        verbose_name="Group Leader User",
+        related_name="lead_groups",
+    )
+
+    members = models.ManyToManyField(
+        "Customer",
+        blank=True,
+        related_name="groups",
+        verbose_name="Group Members",
+    )
+
+    customer_group_branch_name = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Branch Name"
+    )
+    customer_group_area_name = models.ForeignKey(
+        Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name="Area Name"
     )
     history = HistoricalRecords()
 
@@ -26,11 +40,10 @@ class CustomerGroup(Common):
     def __str__(self):
         return self.name
 
-
 class Contact(Common):
     CONTACT_TYPES = (
         ('Supplier', 'Supplier'),
-        ('Customer', 'Customer'),
+        
         ('Guarantor', 'Guarantor'),
     )
 
@@ -86,6 +99,26 @@ class Contact(Common):
     def __str__(self):
         return self.name
 
+class CustomerType(Common):
+    name = models.CharField(max_length=150, verbose_name="Name")
+    behaviour_type = models.JSONField(default=list, blank=True, null=True)
+
+    customer_type_branch = models.ForeignKey(
+        Branch, 
+        on_delete=models.CASCADE, 
+        related_name="customer_type", 
+        null=True, 
+        blank=True, 
+        verbose_name="Branch"
+    )
+
+    class Meta:
+        verbose_name = "Customer Type"
+        verbose_name_plural = "Customer Type"
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 class Customer(Common):
     full_name = models.CharField(
@@ -161,6 +194,13 @@ class Customer(Common):
         blank=True,
         verbose_name="Branch Name"
     )
+    area_name = models.ForeignKey(
+        Area,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Area Name"
+    )
     account_balance = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -172,7 +212,19 @@ class Customer(Common):
         null=True,
         verbose_name="Location URL"
     )
-
+    customer_group = models.ForeignKey(
+        CustomerGroup,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Customers Group"
+    )
+    coustomer_type=models.ForeignKey(
+        CustomerType,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name="Customer Type"
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -182,3 +234,5 @@ class Customer(Common):
 
     def __str__(self):
         return self.full_name
+
+

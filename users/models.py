@@ -217,6 +217,7 @@ class Users(AbstractBaseUser, PermissionsMixin):
         verbose_name="Phone Number"
     )
     profile_picture = models.ImageField(
+        upload_to='products/thumbnails/',
         null=True,
         blank=True,
         verbose_name="Profile Picture"
