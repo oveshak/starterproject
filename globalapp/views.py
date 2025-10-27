@@ -1189,14 +1189,14 @@ class BaseViews(viewsets.ModelViewSet):
         if "list" not in self.methods:
             return self.generate_response(False, status.HTTP_405_METHOD_NOT_ALLOWED, "list_not_allowed")
 
-        # 1. Get Authorization header
+        # 1. Authorization হেডার পাওয়া
         auth_header = request.headers.get("Authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
             return self.generate_response(False, status.HTTP_401_UNAUTHORIZED, "authorization_header_missing")
 
         access_token = auth_header.split(" ")[1]
 
-        # 2. Decode JWT and get user_id
+        # 2. JWT টোকেন ডিকোড করা এবং user_id পাওয়া
         try:
             payload = decode_jwt(access_token)
             user_id = payload.get("user_id")
@@ -1205,18 +1205,28 @@ class BaseViews(viewsets.ModelViewSet):
         except Exception:
             return self.generate_response(False, status.HTTP_401_UNAUTHORIZED, "invalid_token")
 
-        # 3. Get user, branch, area
+        # 3. ব্যবহারকারী, ব্রাঞ্চ, এরিয়া, কাস্টমার গ্রুপ পাওয়া
         try:
             user = Users.objects.get(id=user_id)
             branch = getattr(user, "branch", None)
             area = getattr(user, "area", None)
+            customer_group = getattr(user, "customer_group", None)
+            
+            # MultiBranch থেকে সব Branch IDs বের করা
+            multibranch_ids = []
+            if user.mult_branch.exists():
+                for mb in user.mult_branch.all():
+                    multibranch_ids.extend(mb.multi_branch.values_list('id', flat=True))
+            
+            multibranch = multibranch_ids if multibranch_ids else None
+            
         except Users.DoesNotExist:
             return self.generate_response(False, status.HTTP_401_UNAUTHORIZED, "user_not_found")
 
-        # 4. Get base queryset
+        # 4. ডেটার জন্য queryset পাওয়া
         queryset = self.filter_queryset(self.get_queryset())
 
-        # 5. Area filter for Installment only
+        # 5. Installment মডেলের জন্য Area ফিল্টার (বিশেষ কেস)
         if self.model_name.__name__ == "Installment" and area:
             today = timezone.localdate()
             queryset = queryset.filter(
@@ -1224,9 +1234,13 @@ class BaseViews(viewsets.ModelViewSet):
                 installment_date=today
             )
 
-        # 6. Branch filter
+        # 6. Branch fields খুঁজে বের করা
         branch_fields = [f for f in self.model_name._meta.get_fields() if "branch" in f.name]
-        if branch and branch_fields:
+
+        # 7. ফিল্টারিং লজিক - সব একসাথে apply হবে (AND condition)
+        
+        # Branch ফিল্টার
+        if branch:
             q_objects = Q()
             for f in branch_fields:
                 field_name = f.name
@@ -1237,8 +1251,77 @@ class BaseViews(viewsets.ModelViewSet):
                 elif isinstance(f, (models.CharField, models.TextField)):
                     q_objects |= Q(**{field_name: str(branch)})
             queryset = queryset.filter(q_objects)
+        
+        # Area ফিল্টার
+        if area:
+            area_fields = [f for f in self.model_name._meta.get_fields() if "area" in f.name.lower()]
+            if area_fields:
+                q_objects = Q()
+                for f in area_fields:
+                    field_name = f.name
+                    if isinstance(f, (models.ForeignKey, models.OneToOneField)):
+                        q_objects |= Q(**{f"{field_name}_id": area.id})
+                    elif isinstance(f, models.ManyToManyField):
+                        q_objects |= Q(**{f"{field_name}__id": area.id})
+                    elif isinstance(f, (models.CharField, models.TextField)):
+                        q_objects |= Q(**{field_name: str(area)})
+                queryset = queryset.filter(q_objects)
+        
+        # Customer Group ফিল্টার - এটাই মূল পরিবর্তন
+        if customer_group is not None:  # 0 ও valid হতে পারে
+            # বিশেষ কেস: যদি মডেল নিজেই CustomerGroup হয়
+            if self.model_name.__name__ == "CustomerGroup":
+                queryset = queryset.filter(id=customer_group)
+            else:
+                # অন্য মডেলের জন্য customer_group সম্পর্কিত fields খুঁজে বের করা
+                customer_group_fields = [
+                    f for f in self.model_name._meta.get_fields() 
+                    if "customer" in f.name.lower() and "group" in f.name.lower()
+                ]
+                
+                if customer_group_fields:
+                    q_objects = Q()
+                    for f in customer_group_fields:
+                        field_name = f.name
+                        # ForeignKey বা OneToOneField হলে
+                        if isinstance(f, (models.ForeignKey, models.OneToOneField)):
+                            q_objects |= Q(**{f"{field_name}_id": customer_group})
+                        # Integer field হলে
+                        elif isinstance(f, (models.IntegerField, models.PositiveIntegerField, 
+                                        models.BigIntegerField, models.SmallIntegerField)):
+                            q_objects |= Q(**{field_name: customer_group})
+                        # ManyToManyField হলে
+                        elif isinstance(f, models.ManyToManyField):
+                            q_objects |= Q(**{f"{field_name}__id": customer_group})
+                    
+                    if q_objects:
+                        queryset = queryset.filter(q_objects)
+                else:
+                    # সরাসরি customer_group field চেষ্টা করা
+                    try:
+                        queryset = queryset.filter(customer_group=customer_group)
+                    except Exception:
+                        pass
+        
+        # 8. Multibranch ফিল্টার
+        if not branch and not area and customer_group is None and multibranch:
+            q_objects = Q()
+            for f in branch_fields:
+                field_name = f.name
+                if isinstance(f, (models.ForeignKey, models.OneToOneField)):
+                    q_objects |= Q(**{f"{field_name}_id__in": multibranch})
+                elif isinstance(f, models.ManyToManyField):
+                    q_objects |= Q(**{f"{field_name}__id__in": multibranch})
+                elif isinstance(f, (models.CharField, models.TextField)):
+                    from .models import Branch
+                    branch_names = Branch.objects.filter(id__in=multibranch).values_list('name', flat=True)
+                    for name in branch_names:
+                        q_objects |= Q(**{field_name: name})
+            
+            if q_objects:
+                queryset = queryset.filter(q_objects)
 
-        # 7. Pagination
+        # 10. পেজিনেশন
         limit = request.GET.get("limit")
         if limit is None:
             serializer = self.get_serializer(queryset, many=True)

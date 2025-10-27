@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter,SimpleRouter
 router = SimpleRouter()
 router.register(r'areas', views.AreaViewSet, basename='areas')
 router.register(r'branchs', views.BranchViewSet, basename='branches')
+router.register(r'multibranchs', views.MultiBranchViewSet, basename='multibranchs')
 router.register(r'roles', views.RoleViewSet, basename='roles')
 router.register(r'groups', views.GroupViewSet, basename='groups')
 router.register(r'permissions', views.PermissionViewSet, basename='permissions')

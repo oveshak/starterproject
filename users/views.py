@@ -166,9 +166,9 @@ except:
     pass
 
 from globalapp.views import BaseViews
-from .models import Area, Roles, Users, Branch
+from .models import Area, MultiBranch, Roles, Users, Branch
 from .serializers import (
-    AllUserSerializer, AreaSerializer, CustomTokenObtainPairSerializer, GroupSerializer,
+    AllUserSerializer, AreaSerializer, CustomTokenObtainPairSerializer, GroupSerializer, MultiBranchSerializer,
     PermissionSerializer, RolesSerializer, UsersSerializer, BranchSerializer
 )
 
@@ -222,6 +222,18 @@ class AreaViewSet(BaseViews):
         if area_staf_data is not None:
             instance.area_staf.set([int(pk) for pk in area_staf_data])
         return instance
+
+class MultiBranchViewSet(BaseViews):
+    queryset = MultiBranch.objects.all()
+    serializer_class = MultiBranchSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    model_name = MultiBranch
+    methods = [
+        "list", "retrieve", "create", "update", "partial_update",
+        "destroy", "soft_delete", "change_status", "restore_soft_deleted"
+    ]
+
 
 class BranchViewSet(BaseViews):
     queryset = Branch.objects.all()

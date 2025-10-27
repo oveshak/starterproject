@@ -473,20 +473,36 @@ class Installment(Common):
         default=False,
         verbose_name="Pay From Account"
     )
-    
+
     class Meta:
         verbose_name = "Installment"
         verbose_name_plural = "Installments"
         ordering = ["-installment_date"]
 
     def __str__(self):
-        return f"{self.installment_date} - {self.amount} "
+        return f"{self.installment_date} - {self.amount}"
 
     def is_extra_payment(self):
         """Check if installment pay is greater than amount."""
         if self.installment_pay:
             return self.installment_pay > self.amount
         return False
+
+    def update_due_and_status(self):
+        """Update due_amount, paid_amount, and installment status"""
+        if self.installment_pay is not None:
+            paid = self.installment_pay
+            due = self.due_amount
+
+            if paid >= due:
+                # Fully paid
+                self.installment_status = "paid"
+                self.due_amount = 0
+            else:
+                # Partially paid
+                self.installment_status = "due"
+                self.due_amount = due - paid
+            self.save(update_fields=["installment_status", "due_amount"])
 
 
 class Loan(Common):
@@ -592,11 +608,26 @@ class Transection(Common):
         decimal_places=2,
         verbose_name="Amount"
     )
+    paid_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Paid Amount",
+        null=True,
+        blank=True
+    )
+    due_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Due Amount",
+        null=True,
+        blank=True
+    )
     customer_name = models.ForeignKey(
         Customer,
         on_delete=models.CASCADE,
         verbose_name="Customer Name"
     )
+
     received_by = models.ForeignKey(
         Users,
         on_delete=models.SET_NULL,
@@ -627,21 +658,20 @@ class Transection(Common):
         verbose_name="Customer Group"
     )
 
-
-
     def save(self, *args, **kwargs):
         # Auto-populate from customer if not provided
         if self.customer_name:
             if not self.branch_name and hasattr(self.customer_name, 'branch_name'):
                 self.branch_name = self.customer_name.branch_name
-            
             if not self.area_name and hasattr(self.customer_name, 'area_name'):
                 self.area_name = self.customer_name.area_name
-            
             if not self.customer_group and hasattr(self.customer_name, 'customer_group'):
                 self.customer_group = self.customer_name.customer_group
+
         
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.transection_type} - {self.amount} for {self.modelname}"
+
+

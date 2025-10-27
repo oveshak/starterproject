@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Group, Permission
 from globalapp.serializers import GlobalSerializers
-from .models import Area, Roles, Users, Branch
+from .models import Area, MultiBranch, Roles, Users, Branch
 from rest_framework_simplejwt.tokens import RefreshToken
 class GroupSerializer(serializers.ModelSerializer):
     permissions = serializers.SerializerMethodField()
@@ -33,6 +33,12 @@ class BranchSerializer(GlobalSerializers):
     manager_name = serializers.CharField(source='manager.name', read_only=True)
     class Meta:
         model = Branch
+        fields = '__all__'
+        
+class MultiBranchSerializer(GlobalSerializers):
+    
+    class Meta:
+        model = MultiBranch
         fields = '__all__'
 
 class UsersSerializer(GlobalSerializers):

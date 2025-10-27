@@ -306,7 +306,8 @@ def create_customer_type_transactions(sender, instance, created, **kwargs):
                     "transection_type": transaction_type,
                     "amount": amt,
                     "customer_name": instance,
-                    "modelname": f"Customer Type Behavior: {behavior_name}"
+                    "modelname": f"Customer Type Behavior: {behavior_name}",
+                     "received_by": instance.received_by,  # <-- added lin
                 }
                
                 # Add created_by if available
@@ -334,6 +335,7 @@ def create_customer_type_transactions(sender, instance, created, **kwargs):
         print(f"\n❌ SIGNAL ERROR for customer {instance.full_name}:")
         print(f"   Error: {str(e)}")
         print(f"   Traceback: {traceback.format_exc()}")
+
 
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date
@@ -587,7 +589,8 @@ def store_old_installment_status(sender, instance, **kwargs):
 @receiver(post_save, sender=Installment)
 def handle_installment_payment(sender, instance, created, **kwargs):
     """
-    Handle installment payment with pay_from_account logic and proper due tracking
+    Handle installment payment with pay_from_account logic and proper due tracking.
+    Transaction is created with correct amount, paid_amount, and due_amount.
     """
     if created:
         return
@@ -596,7 +599,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
     old_pay = getattr(instance, '_old_pay', None)
     old_due_amount = getattr(instance, '_old_due_amount', None)
     
-    # Check if payment is being made
+    # Check if payment is being made (i.e., installment_pay is updated)
     if not (old_pay != instance.installment_pay and instance.installment_pay):
         return
     
@@ -609,16 +612,17 @@ def handle_installment_payment(sender, instance, created, **kwargs):
         print("Warning: No payment amount recorded")
         return
     
-    # Determine actual payment amount (cannot exceed due amount for normal payment)
-    if installment_pay > current_due:
-        actual_payment = current_due
-        extra_amount = installment_pay - current_due
+    # If installment_pay > amount, extra payment should be treated as savings
+    if installment_pay > instance.amount:
+        actual_payment = instance.amount
+        extra_amount = installment_pay - instance.amount
         print(f"💰 Payment: {installment_pay:.2f}, Due: {current_due:.2f}, Extra: {extra_amount:.2f}")
     else:
         actual_payment = installment_pay
         extra_amount = Decimal('0')
         print(f"💵 Payment: {installment_pay:.2f}, Due: {current_due:.2f}")
     
+    # Create the transaction based on whether the payment is from the account or normal payment
     if instance.pay_from_account:
         print(f"💳 Pay from account enabled - processing account deduction...")
         
@@ -632,15 +636,20 @@ def handle_installment_payment(sender, instance, created, **kwargs):
             print(f"✓ Deducted {installment_pay:.2f} from account")
             
             # Create transaction for actual installment payment
-            create_transaction_with_customer_info(
+            transaction = create_transaction_with_customer_info(
                 instance.customer_name,
                 transection_type="cashin",
-                amount=actual_payment,
+                amount=instance.amount,  # Transaction amount = Installment amount
                 customer_name=instance.customer_name,
                 received_by=instance.received_by,
                 modelname=f"Installment Payment from Account (ID: {instance.id}, Loan: {instance.loan_id})"
             )
-            print(f"✓ Transaction created: {actual_payment:.2f}")
+            print(f"✓ Transaction created: {instance.amount:.2f}")
+
+            # Set the paid_amount and due_amount in the transaction
+            transaction.paid_amount = actual_payment  # Paid amount = Installment pay (or amount)
+            transaction.due_amount = instance.due_amount - actual_payment  # Due amount = Installment due - paid amount
+            transaction.save()
             
             # Calculate new due amount
             new_due_amount = current_due - actual_payment
@@ -660,7 +669,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
                 )
                 print(f"⚠ Partial payment! Remaining Due: {new_due_amount:.2f}")
             
-            # Handle extra payment
+            # Handle extra payment (if any)
             if extra_amount > 0:
                 print(f"💰 Extra payment: {extra_amount:.2f} - adding to account balance")
                 
@@ -691,18 +700,23 @@ def handle_installment_payment(sender, instance, created, **kwargs):
     else:
         # Normal payment (not from account)
         print(f"💵 Normal payment processing...")
-        
+
         # Create transaction for actual installment payment
-        create_transaction_with_customer_info(
+        transaction = create_transaction_with_customer_info(
             instance.customer_name,
             transection_type="cashin",
-            amount=actual_payment,
+            amount=instance.amount,  # Transaction amount = Installment amount
             customer_name=instance.customer_name,
             received_by=instance.received_by,
             modelname=f"Installment Payment (ID: {instance.id}, Loan: {instance.loan_id})"
         )
-        print(f"✓ Transaction created: {actual_payment:.2f}")
+        print(f"✓ Transaction created: {instance.amount:.2f}")
         
+        # Set the paid_amount and due_amount in the transaction
+        transaction.paid_amount = actual_payment  # Paid amount = Installment pay
+        transaction.due_amount = instance.due_amount - actual_payment  # Due amount = Installment due amount
+        transaction.save()
+
         # Calculate new due amount
         new_due_amount = current_due - actual_payment
         
@@ -721,7 +735,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
             )
             print(f"⚠ Partial payment! Remaining Due: {new_due_amount:.2f}")
         
-        # Handle extra payment
+        # Handle extra payment (if any)
         if extra_amount > 0:
             print(f"💰 Extra payment: {extra_amount:.2f} - adding to account balance")
             
@@ -737,3 +751,12 @@ def handle_installment_payment(sender, instance, created, **kwargs):
                 modelname=f"Extra Payment Savings (Installment ID: {instance.id})"
             )
             print(f"✓ Extra payment added to balance: {extra_amount:.2f}")
+
+
+
+
+
+
+
+
+            

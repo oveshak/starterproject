@@ -2,6 +2,8 @@ from django.db import models
 from datetime import datetime
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Group, PermissionsMixin, Permission
 from django.utils import timezone
+
+# from contacts.models import CustomerGroup
 from globalapp.models import Common
 from phonenumber_field.modelfields import PhoneNumberField
 from django.core.validators import RegexValidator
@@ -162,6 +164,19 @@ class Branch(Common):
     def __str__(self):
         return self.name
 
+
+class MultiBranch(Common):
+    title = models.CharField(max_length=300)
+    multi_branch = models.ManyToManyField(Branch)
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "MultiBranch"
+        verbose_name_plural = "MultiBranch"
+
+    def __str__(self):
+        return self.title
+
 class Users(AbstractBaseUser, PermissionsMixin):
     status = models.BooleanField(
         default=True,
@@ -283,6 +298,15 @@ class Users(AbstractBaseUser, PermissionsMixin):
         related_name='userss_area',  # <-- unique reverse name
         verbose_name="Area"
     )
+    mult_branch=models.ManyToManyField(MultiBranch ,
+        blank=True,
+        related_name='userss_mult_branch',  # <-- unique reverse name
+        verbose_name="MultiBranch")
+    
+    customer_group = models.IntegerField(
+    null=True,
+    blank=True
+)
     history = HistoricalRecords()
 
     USERNAME_FIELD = 'email'
@@ -316,3 +340,5 @@ class Users(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.name if self.name else self.email
+
+

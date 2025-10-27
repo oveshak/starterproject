@@ -40,6 +40,7 @@ class CustomerGroup(Common):
     def __str__(self):
         return self.name
 
+
 class Contact(Common):
     CONTACT_TYPES = (
         ('Supplier', 'Supplier'),
@@ -224,6 +225,14 @@ class Customer(Common):
         on_delete=models.SET_NULL,
         null=True,
         verbose_name="Customer Type"
+    )
+    
+    received_by = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Received By"
     )
     history = HistoricalRecords()
 
