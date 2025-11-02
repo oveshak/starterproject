@@ -306,3 +306,6 @@ class TransectionViewSet(BaseViews):
     permission_classes = [permissions.IsAuthenticated]
     model_name = Transection
     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy"]
+
+
+    

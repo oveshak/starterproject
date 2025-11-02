@@ -89,10 +89,21 @@ WSGI_APPLICATION = 'starterproject.wsgi.application'
 
 
 # Database
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'myprojectdb',          # from AWS
+        'USER': 'postgres',          # from AWS
+        'PASSWORD': 'Pa$$w0rd!',     # from AWS
+        'HOST': 'database-1.cto6c2c8g0z4.ap-southeast-2.rds.amazonaws.com',  # from AWS RDS
+        'PORT': '5432',
     }
 }
 
