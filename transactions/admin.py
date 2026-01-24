@@ -1,15 +1,52 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+
+from products.models import Variation, unick
 from .models import (
-    DailySaving, Installment, InstallmentType, Loan, LoanType, Purchase, PurchaseItem, PurchaseReturn,
+    DailySaving, DownPayment, Installment, InstallmentType, Loan, LoanType, Purchase, PurchaseItem, PurchaseReturn,
     Sale, SaleItem, Payment, Cheque, AffiliateCommission, Transection
 )
 
+from django import forms
+from django.core.exceptions import ValidationError
+
+
+class PurchaseAdminForm(forms.ModelForm):
+    class Meta:
+        model = Purchase
+        fields = "__all__"
+
+    def clean(self):
+        cleaned = super().clean()
+
+        variation = cleaned.get("purchase_product_variation")
+        unickkeys = cleaned.get("unickkey")
+        qty = cleaned.get("qty")
+
+        if variation and variation.isunck:
+            count = unickkeys.count() if unickkeys else 0
+
+            if count == 0:
+                raise ValidationError("UnickKey is required for this variation.")
+
+            if qty != count:
+                raise ValidationError(
+                    f"Quantity must equal UnickKey count ({count}) for isunck variation."
+                )
+
+        return cleaned
+
+
 @admin.register(Purchase)
-class PurchaseAdmin(ModelAdmin):
-    list_display = ['supplier_name', 'branch_name', 'purchase_date', 'total_amount', 'purchase_status']
-    search_fields = ['supplier_name__name', 'branch_name__name', 'purchase_status']
-    list_filter = ['branch_name', 'purchase_status', 'purchase_date']
+class PurchaseAdmin(admin.ModelAdmin):
+    form = PurchaseAdminForm
+    list_display = ['supplier_name', 'purchase_date', 'total_amount', 'purchase_status']
+    list_filter = ['purchase_status', 'purchase_date']
+    filter_horizontal = ("unickkey",)
+
+    class Media:
+        js = ("admin/js/purchase_variation_v2.js",)
+
 
 @admin.register(PurchaseItem)
 class PurchaseItemAdmin(ModelAdmin):
@@ -76,11 +113,34 @@ class DailySavingAdmin(ModelAdmin):
     ordering = ('amount',)
 
 
+@admin.register(DownPayment)
+class DownPaymentAdmin(admin.ModelAdmin):
+    list_display = (
+        'title',
+        'ispercentage',
+        'amount_or_percentage',
+        'branch_name',
+        'area_name',
+    )
+
+    list_filter = (
+        'ispercentage',
+        'branch_name',
+        'area_name',
+    )
+
+    search_fields = (
+        'title',
+    )
+
+    ordering = ('amount_or_percentage',)
+
 @admin.register(Installment)
 class InstallmentAdmin(ModelAdmin):
     list_display = ['customer_name', 'installment_date', 'amount', 'received_by', 'installment_status']
     search_fields = ['customer_name__full_name', 'customer_name__mobile_number']
     list_filter = ['installment_status', 'installment_date']
+
 @admin.register(Loan)
 class LoanAdmin(ModelAdmin):
     list_display = ['customer_name', 'receive_type', 'amount', 'loan_type', 'pay_from_account', 'installment_type']
@@ -107,3 +167,6 @@ class TransectionAdmin(ModelAdmin):
     
     # You can also define readonly_fields to make fields read-only if needed
     readonly_fields = ('created_at',)
+
+
+

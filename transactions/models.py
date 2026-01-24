@@ -1,9 +1,51 @@
 from django.db import models
 from globalapp.models import Common
 from users.models import Area, Branch, Users
-from products.models import Product
+from products.models import Product, Variation, unick
 from contacts.models import Contact, Customer, CustomerGroup
 from simple_history.models import HistoricalRecords
+from rest_framework.response import Response
+from django.db.models import Sum, Count, Q
+
+# class Purchase(Common):
+#     supplier_name = models.ForeignKey(
+#         Contact,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         related_name='purchases',
+#         verbose_name="Supplier"
+#     )
+
+#     purchase_product = models.ForeignKey(
+#         Product,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         verbose_name="Product"
+#     )
+
+#     purchase_product_variation = models.ForeignKey(
+#         Variation,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         verbose_name="Variation"
+#     )
+
+#     qty = models.PositiveIntegerField(verbose_name="Quantity")
+
+#     purchase_date = models.DateField()
+#     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
+#     purchase_status = models.CharField(max_length=20)
+#     vendor_cheque_details = models.TextField(blank=True, null=True)
+
+#     history = HistoricalRecords()
+
+#     class Meta:
+#         ordering = ['-purchase_date']
+
+#     def __str__(self):
+#         return f"{self.supplier_name} - {self.total_amount}"
+
+
 
 class Purchase(Common):
     supplier_name = models.ForeignKey(
@@ -13,40 +55,35 @@ class Purchase(Common):
         related_name='purchases',
         verbose_name="Supplier"
     )
-    branch_name = models.ForeignKey(
-        Branch,
+
+    purchase_product = models.ForeignKey(
+        Product,
         on_delete=models.SET_NULL,
         null=True,
-        related_name='purchases',
-        verbose_name="Branch"
+        verbose_name="Product"
     )
-    purchase_date = models.DateField(verbose_name="Purchase Date")
-    total_amount = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        verbose_name="Total Amount"
-    )
-    purchase_status = models.CharField(
-        max_length=20,
-        verbose_name="Purchase Status"
-    )
-    vendor_cheque_details = models.TextField(
-        blank=True,
+
+    purchase_product_variation = models.ForeignKey(
+        Variation,
+        on_delete=models.SET_NULL,
         null=True,
-        verbose_name="Vendor Cheque Details"
+        verbose_name="Variation"
     )
+
+    # 🔥 NEW
+    unickkey = models.ManyToManyField(unick, blank=True)
+
+    qty = models.PositiveIntegerField(verbose_name="Quantity")
+
+    purchase_date = models.DateField()
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2)
+    purchase_status = models.CharField(max_length=20)
+    vendor_cheque_details = models.TextField(blank=True, null=True)
+
     history = HistoricalRecords()
 
     class Meta:
-        verbose_name = "Purchase"
-        verbose_name_plural = "Purchases"
         ordering = ['-purchase_date']
-
-    def __str__(self):
-        supplier = getattr(self, "supplier_name", None)
-        if supplier is None:
-            supplier = "Unknown Supplier"
-        return f"{supplier} - {self.total_amount}"
 
 
 class PurchaseItem(Common):
@@ -504,13 +541,58 @@ class Installment(Common):
                 self.due_amount = due - paid
             self.save(update_fields=["installment_status", "due_amount"])
 
+class DownPayment(Common):
+
+    title = models.CharField(
+        max_length=50,
+        verbose_name="Title Name"
+    )
+
+    # True = percentage, False = fixed amount
+    ispercentage = models.BooleanField(
+        default=False,
+        verbose_name="Is Percentage"
+    )
+
+    amount_or_percentage = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Amount / Percentage"
+    )
+
+    branch_name = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name="downpayment_branch_set",
+        null=True,
+        blank=True,
+        verbose_name="Branch"
+    )
+
+    area_name = models.ForeignKey(
+        Area,
+        on_delete=models.CASCADE,
+        related_name="downpayment_area_set",
+        null=True,
+        blank=True,
+        verbose_name="Area"
+    )
+
+    class Meta:
+        verbose_name = "Down Payment"
+        verbose_name_plural = "Down Payments"
+
+    def __str__(self):
+        unit = "%" if self.ispercentage else "৳"
+        return f"{self.title} ({self.amount_or_percentage}{unit})"
 
 class Loan(Common):
+
     RECEIVE_TYPE_CHOICES = [
         ("cash", "Cash"),
         ("product", "Product"),
     ]
-    
+
     branch_name = models.ForeignKey(
         Branch,
         on_delete=models.CASCADE,
@@ -518,7 +600,8 @@ class Loan(Common):
         null=True,
         blank=True,
         verbose_name="Branch"
-    ) 
+    )
+
     area_name = models.ForeignKey(
         Area,
         on_delete=models.CASCADE,
@@ -527,59 +610,76 @@ class Loan(Common):
         blank=True,
         verbose_name="Area"
     )
+
     customer_name = models.ForeignKey(
         Customer,
         on_delete=models.CASCADE,
         verbose_name="Customer Name"
     )
+
     receive_type = models.CharField(
         max_length=20,
         choices=RECEIVE_TYPE_CHOICES,
         verbose_name="Receive Type"
     )
+
     product_details = models.JSONField(
-        verbose_name="Product Details",
         blank=True,
-        null=True
+        null=True,
+        verbose_name="Product Details"
     )
+
     amount = models.DecimalField(
         max_digits=12,
         decimal_places=2,
-        verbose_name="Amount"
+        verbose_name="Loan Amount"
     )
+
     loan_type = models.ForeignKey(
         LoanType,
         on_delete=models.SET_NULL,
         null=True,
         verbose_name="Loan Type"
     )
+
     installment = models.ManyToManyField(
         Installment,
         blank=True,
-        verbose_name="Installments"
+        # verbose_name="Installments"
     )
+
     pay_from_account = models.BooleanField(
         default=False,
-        verbose_name="Pay From Account"
+        # verbose_name="Pay From Account"
     )
+
     installment_type = models.ForeignKey(
         InstallmentType,
         on_delete=models.SET_NULL,
         null=True,
         verbose_name="Installment Type"
     )
+
+    # 🔥 AUTO CALCULATED
     first_down_payment = models.DecimalField(
         null=True,
         blank=True,
         max_digits=12,
         decimal_places=2,
-        verbose_name="First Down Payment"
+        # verbose_name="First Down Payment"
     )
-    updated_at = models.DateTimeField(
-        auto_now=True,
+
+    # 🔥 renamed to avoid clash with Common model
+    downpayment_rule = models.ForeignKey(
+        DownPayment,
+        on_delete=models.CASCADE,
+        related_name="loan_downpayments",
         null=True,
-        blank=True
+        blank=True,
+        verbose_name="Down Payment Rule"
     )
+    updated_at = models.DateTimeField(auto_now=True)
+
 
     history = HistoricalRecords()
 
@@ -588,8 +688,66 @@ class Loan(Common):
         verbose_name_plural = "Loans"
         ordering = ["-created_at"]
 
+    def save(self, *args, **kwargs):
+        """
+        Backend auto-calculation of first down payment
+        """
+        if self.downpayment_rule and self.amount:
+            value = self.downpayment_rule.amount_or_percentage or 0
+
+            if self.downpayment_rule.ispercentage:
+                self.first_down_payment = (self.amount * value) / 100
+            else:
+                self.first_down_payment = value
+        else:
+            self.first_down_payment = None
+
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.customer_name} - {self.amount} ({self.receive_type})"
+        return f"{self.customer_name} - {self.amount}"
+
+
+class BranchAccount(Common):
+    branch_name = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        verbose_name="Branch"
+    )
+    date = models.DateField(
+        unique=True,
+        verbose_name="Date"
+    )
+    hand_cash = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        verbose_name="Hand Cash"
+    )
+    total_collection = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        verbose_name="Total Collection"
+    )
+   
+    
+    report_submitted_by_user_name = models.ForeignKey(
+        Users,
+        on_delete=models.SET_NULL,
+        null=True,
+        verbose_name="Report Submitted By"
+    )
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "BranchAccount"
+        verbose_name_plural = "BranchAccount"
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"{self.branch_name} - {self.date}"
+
+
+
 
 
 class Transection(Common):
@@ -658,6 +816,7 @@ class Transection(Common):
         verbose_name="Customer Group"
     )
 
+    
     def save(self, *args, **kwargs):
         # Auto-populate from customer if not provided
         if self.customer_name:

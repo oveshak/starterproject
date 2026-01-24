@@ -136,8 +136,8 @@ from datetime import timedelta, date
 from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from contacts.models import Customer
-from products.models import BranchProductStock
-from .models import Loan, Installment, Transection, DailySaving
+from products.models import BranchProductStock, Variation
+from .models import Loan, Installment, Purchase, Transection, DailySaving
 from decimal import Decimal
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -150,37 +150,76 @@ class InsufficientBalanceError(Exception):
 
 
 def get_next_valid_date(current_date):
-    """Skip Friday (weekday 4)"""
+    # Friday = 4
     while current_date.weekday() == 4:
         current_date += timedelta(days=1)
     return current_date
 
 
+# def generate_installment_dates(start_date, installment_type):
+#     """Generate installment dates based on frequency"""
+#     dates = []
+#     frequency = installment_type.type
+#     total_duration_months = installment_type.total_duration or 12
+    
+#     if frequency == "daily":
+#         total_installments = total_duration_months * 22
+#         delta = timedelta(days=installment_type.instalment_cullect)
+#     elif frequency == "weekly":
+#         total_installments = int(total_duration_months * 4.3)
+#         delta = timedelta(weeks=installment_type.instalment_cullect)
+#     elif frequency == "monthly":
+#         total_installments = total_duration_months
+#         delta = relativedelta(months=installment_type.instalment_cullect)
+#     elif frequency == "yearly":
+#         total_installments = max(1, total_duration_months // 12)
+#         delta = relativedelta(years=installment_type.instalment_cullect)
+#     else:
+#         return dates
+
+#     current_date = get_next_valid_date(start_date)
+#     for _ in range(total_installments):
+#         dates.append(current_date)
+#         current_date = get_next_valid_date(current_date + delta)
+#     return dates
+
+
+
 def generate_installment_dates(start_date, installment_type):
-    """Generate installment dates based on frequency"""
     dates = []
     frequency = installment_type.type
     total_duration_months = installment_type.total_duration or 12
-    
+
     if frequency == "daily":
         total_installments = total_duration_months * 22
         delta = timedelta(days=installment_type.instalment_cullect)
+
     elif frequency == "weekly":
         total_installments = int(total_duration_months * 4.3)
         delta = timedelta(weeks=installment_type.instalment_cullect)
+
     elif frequency == "monthly":
         total_installments = total_duration_months
         delta = relativedelta(months=installment_type.instalment_cullect)
+
     elif frequency == "yearly":
         total_installments = max(1, total_duration_months // 12)
         delta = relativedelta(years=installment_type.instalment_cullect)
+
     else:
         return dates
 
-    current_date = get_next_valid_date(start_date)
+    # ✅ KEY LOGIC:
+    # 1st installment = loan_date + instalment_cullect
+    first_date = start_date + delta
+
+    # Friday skip
+    current_date = get_next_valid_date(first_date)
+
     for _ in range(total_installments):
         dates.append(current_date)
         current_date = get_next_valid_date(current_date + delta)
+
     return dates
 
 
@@ -392,6 +431,84 @@ def _process_product_receipt(instance):
         except Product.DoesNotExist:
             raise ValidationError(f"Product (id={pid}) not found.")
         _adjust_branch_stock(instance.branch_name, product, qty)
+def deduct_branch_and_variation_stock(branch, variation, qty):
+    if qty <= 0:
+        raise ValidationError("Quantity must be positive")
+
+    # 🔒 lock branch stock row
+    branch_stock = (
+        BranchProductStock.objects
+        .select_for_update()
+        .filter(
+            stock_branch=branch,
+            product_variation=variation
+        )
+        .first()
+    )
+
+    if not branch_stock:
+        raise ValidationError(
+            f"No branch stock for variation {variation.id}"
+        )
+
+    # ✅ validate BEFORE update (int vs int)
+    if branch_stock.quantity < qty:
+        raise ValidationError(
+            f"Branch stock insufficient. Have {branch_stock.quantity}, need {qty}"
+        )
+
+    if variation.quantity < qty:
+        raise ValidationError(
+            f"Variation stock insufficient. Have {variation.quantity}, need {qty}"
+        )
+
+    # ✅ update WITHOUT triggering clean()
+    BranchProductStock.objects.filter(
+        id=branch_stock.id
+    ).update(
+        quantity=F("quantity") - qty
+    )
+
+    Variation.objects.filter(
+        id=variation.id
+    ).update(
+        quantity=F("quantity") - qty
+    )
+
+@receiver(post_save, sender=Loan)
+def handle_loan_create(sender, instance, created, **kwargs):
+    if not created:
+        return
+
+    if instance.receive_type != "product":
+        return
+
+    if not instance.product_details:
+        return
+
+    with transaction.atomic():
+        for row in instance.product_details:
+            variation_id = row.get("variation_id")
+            qty = int(row.get("quantity", 0))
+
+            if not variation_id or qty <= 0:
+                continue
+
+            try:
+                variation = Variation.objects.select_for_update().get(
+                    id=variation_id
+                )
+            except Variation.DoesNotExist:
+                raise ValidationError(
+                    f"Variation {variation_id} not found"
+                )
+
+            deduct_branch_and_variation_stock(
+                branch=instance.branch_name,
+                variation=variation,
+                qty=qty
+            )
+
 
 @receiver(post_save, sender=Loan)
 def create_installments_and_transactions(sender, instance, created, **kwargs):
@@ -530,10 +647,14 @@ def create_installments_and_transactions(sender, instance, created, **kwargs):
                 print(f"  Installment {i+1}: {inst_date} = {amount:.2f}")
 
             if installments:
-                # replace in one shot (cleaner than clear()+add())
+                # attach installments
                 instance.installment.set(installments)
-                instance.save(update_fields=["updated_at"])
+
+                # IMPORTANT: updated_at manually touch কোরো না
+                # শুধু normal save করলেই হবে (Common/Loan যেটা আছে সেটাই update হবে)
+                instance.save()
                 print(f"✅ {len(installments)} installments attached to Loan ID {instance.id}")
+
 
             # 7) Touch updated_at (optional; save above already did)
             Loan.objects.filter(pk=instance.pk).update(updated_at=timezone.now())
@@ -754,9 +875,128 @@ def handle_installment_payment(sender, instance, created, **kwargs):
 
 
 
+# @receiver(post_save, sender=Loan)
+# def create_installments_on_loan_create(sender, instance, created, **kwargs):
+#     if not created:
+#         return
+
+#     # 🔒 run only after DB commit (VERY IMPORTANT)
+#     def _create():
+#         installment_type = instance.installment_type
+#         if not installment_type:
+#             return
+
+#         dates = generate_installment_dates(date.today(), installment_type)
+#         if not dates:
+#             return
+
+#         total_amount = instance.amount
+#         n = len(dates)
+#         per_installment = (total_amount / n).quantize(Decimal("0.01"))
+#         remaining = total_amount
+
+#         installments = []
+
+#         with transaction.atomic():
+#             for i, inst_date in enumerate(dates):
+#                 if i == n - 1:
+#                     amount = remaining
+#                 else:
+#                     amount = per_installment
+#                     remaining -= amount
+
+#                 inst = Installment.objects.create(
+#                     customer_name=instance.customer_name,
+#                     installment_date=inst_date,
+#                     amount=amount,
+#                     due_amount=amount,
+#                     installment_status="due",
+#                     branch_name=instance.branch_name,
+#                     area_name=instance.area_name,
+#                     loan_id=str(instance.id),
+#                     pay_from_account=instance.pay_from_account
+#                 )
+#                 installments.append(inst)
+
+#             # ✅ attach installments to loan
+#             instance.installment.set(installments)
+
+#     transaction.on_commit(_create)
 
 
 
+# @receiver(post_save, sender=Purchase)
+# def increase_variation_stock_on_purchase(sender, instance, created, **kwargs):
+#     if not created:
+#         return
 
+#     variation = instance.purchase_product_variation
+#     qty = instance.qty
 
+#     if variation and qty:
+#         variation.quantity += qty
+#         variation.save()
             
+
+
+
+# @receiver(post_save, sender=Purchase)
+# def increase_variation_stock_on_purchase(sender, instance, created, **kwargs):
+#     if not created:
+#         return
+
+#     variation = instance.purchase_product_variation
+#     qty = instance.qty
+
+#     if not variation:
+#         return
+
+#     # 🔹 Increase stock
+#     variation.quantity += qty
+#     variation.save(update_fields=["quantity"])
+
+#     # 🔹 Attach unickkeys if variation is unique
+#     if variation.isunck:
+#         variation.unickkey.add(*instance.unickkey.all())
+
+
+from django.db.models.signals import m2m_changed
+from django.dispatch import receiver
+from .models import Purchase
+
+
+@receiver(m2m_changed, sender=Purchase.unickkey.through)
+def attach_unick_to_variation(sender, instance, action, **kwargs):
+    """
+    When unickkey is added to Purchase,
+    attach them to Variation if isunck=True
+    """
+    if action != "post_add":
+        return
+
+    variation = instance.purchase_product_variation
+
+    if not variation or not variation.isunck:
+        return
+
+    # 🔥 THIS WILL NOW WORK
+    variation.unickkey.add(*instance.unickkey.all())
+
+@receiver(post_save, sender=Purchase)
+def increase_variation_stock_on_purchase(sender, instance, created, **kwargs):
+    if not created:
+        return
+
+    variation = instance.purchase_product_variation
+    if variation:
+        variation.quantity += instance.qty
+        variation.save(update_fields=["quantity"])
+
+
+@receiver(m2m_changed, sender=Purchase.unickkey.through)
+def attach_unick_to_variation(sender, instance, action, **kwargs):
+    if action == "post_add":
+        variation = instance.purchase_product_variation
+        if variation and variation.isunck:
+            variation.unickkey.add(*instance.unickkey.all())
+

@@ -15,10 +15,16 @@ router.register(r'loantypes', views.LoanTypeViewSet, basename='loan-types')
 router.register(r'installmenttypes', views.InstallmentTypeViewSet, basename='installment-types')
 router.register(r'dailysavings', views.DailySavingViewSet, basename='dailysavings')
 router.register(r'transections', views.TransectionViewSet, basename='transections')
-
+router.register(r'branchaccounts', views.BranchAccountViewSet, basename='branchaccounts')
 router.register(r'installments', views.InstallmentViewSet, basename='installments')
 router.register(r'loans', views.LoanViewSet, basename='loans')
-
+router.register(
+    r'downpayments',
+    views.DownPaymentViewSet,
+    basename='downpayment'
+)
 urlpatterns = [
+
+    path("_admin/variations/", views.AdminVariationByProductView.as_view()),
     path('', include(router.urls)),
 ]

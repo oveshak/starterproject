@@ -1059,6 +1059,119 @@ class BaseViews(viewsets.ModelViewSet):
         "payment_failed": "Payment processing failed"
     }
 
+    # def get_queryset(self):
+    #     # ---------------- Base Queryset ----------------
+    #     try:
+    #         queryset = self.model_name.objects.filter(is_deleted=False)
+    #     except:
+    #         queryset = self.model_name.objects.all()
+
+    #     params = self.request.query_params
+
+    #     # ---------------- Search Section ----------------
+    #     search = params.get("search")
+    #     if search:
+    #         char_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.CharField)]
+    #         text_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.TextField)]
+    #         int_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.IntegerField)]
+
+    #         char_queries = [Q(**{f"{field}__icontains": search}) for field in char_fields]
+    #         text_queries = [Q(**{f"{field}__icontains": search}) for field in text_fields]
+
+    #         int_queries = []
+    #         if search.isdigit():
+    #             for field in int_fields:
+    #                 int_queries.append(Q(**{f"{field}": int(search)}))
+
+    #         related_queries = []
+    #         for field in self.model_name._meta.get_fields():
+    #             if (field.is_relation and field.many_to_one) or field.many_to_many:
+    #                 rel_model = field.related_model
+    #                 for lookup in ["name", "username", "title", "code"]:
+    #                     if lookup in [f.name for f in rel_model._meta.fields]:
+    #                         related_queries.append(Q(**{f"{field.name}__{lookup}__icontains": search}))
+    #                         break
+
+    #         combined_queries = char_queries + text_queries + int_queries + related_queries
+    #         if combined_queries:
+    #             final_query = combined_queries.pop()
+    #             for query in combined_queries:
+    #                 final_query |= query
+    #             queryset = queryset.filter(final_query)
+
+    #     # ---------------- Date / Date Range Section ----------------
+    #     single_date = params.get("date")
+    #     start_date = params.get("start_date")
+    #     end_date = params.get("end_date")
+
+    #     if single_date:
+    #         try:
+    #             single_date = datetime.strptime(single_date, "%Y-%m-%d").date()
+    #             try:
+    #                 queryset = queryset.filter(date=single_date)
+    #             except:
+    #                 queryset = queryset.filter(created_at__date=single_date)
+    #         except ValueError:
+    #             pass
+
+    #     elif start_date and end_date:
+    #         try:
+    #             start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+    #             end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+    #             try:
+    #                 queryset = queryset.filter(date__range=[start_date, end_date])
+    #             except:
+    #                 queryset = queryset.filter(created_at__range=[start_date, end_date])
+    #         except ValueError:
+    #             pass
+
+    #     # ---------------- Keyword Section ----------------
+    #     keyword = params.get("keyword")
+    #     if keyword:
+    #         char_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.CharField)]
+    #         text_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.TextField)]
+    #         int_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.IntegerField)]
+
+    #         char_queries = [Q(**{f"{field}__icontains": keyword}) for field in char_fields]
+    #         text_queries = [Q(**{f"{field}__icontains": keyword}) for field in text_fields]
+
+    #         int_queries = []
+    #         if keyword.isdigit():
+    #             for field in int_fields:
+    #                 int_queries.append(Q(**{f"{field}": int(keyword)}))
+
+    #         combined_queries = char_queries + text_queries + int_queries
+    #         if combined_queries:
+    #             final_query = combined_queries.pop()
+    #             for query in combined_queries:
+    #                 final_query |= query
+    #             queryset = queryset.filter(final_query)
+
+    #     # ---------------- Dynamic Filters Section ----------------
+    #     filter_params = {
+    #         param: value
+    #         for param, value in params.items()
+    #         if param not in [
+    #             "limit", "offset", "date", "start_date", "end_date",
+    #             "keyword", "depth", "leave_ids", "em_id", "search"
+    #         ]
+    #     }
+
+    #     for param, value in filter_params.items():
+    #         if "__" in param:
+    #             try:
+    #                 queryset = queryset.filter(**{param + "__icontains": value})
+    #             except:
+    #                 queryset = queryset.filter(**{param: value})
+    #         else:
+    #             try:
+    #                 queryset = queryset.filter(**{param + "__icontains": value})
+    #             except:
+    #                 queryset = queryset.filter(**{param: value})
+
+    #     return queryset.order_by("-id")
+    
+
     def get_queryset(self):
         # ---------------- Base Queryset ----------------
         try:
@@ -1068,6 +1181,16 @@ class BaseViews(viewsets.ModelViewSet):
 
         params = self.request.query_params
 
+        # ======================================================
+        # 🔑 FIELD MAP (API param → real DB field)
+        # ======================================================
+        FIELD_MAP = {
+            "branch": "branch_name_id",
+            "area": "area_name_id",
+            "customer_group": "customer_group_id",
+            "received_by": "received_by_id",
+        }
+
         # ---------------- Search Section ----------------
         search = params.get("search")
         if search:
@@ -1075,55 +1198,51 @@ class BaseViews(viewsets.ModelViewSet):
             text_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.TextField)]
             int_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.IntegerField)]
 
-            char_queries = [Q(**{f"{field}__icontains": search}) for field in char_fields]
-            text_queries = [Q(**{f"{field}__icontains": search}) for field in text_fields]
+            queries = []
 
-            int_queries = []
+            queries += [Q(**{f"{field}__icontains": search}) for field in char_fields]
+            queries += [Q(**{f"{field}__icontains": search}) for field in text_fields]
+
             if search.isdigit():
-                for field in int_fields:
-                    int_queries.append(Q(**{f"{field}": int(search)}))
+                queries += [Q(**{field: int(search)}) for field in int_fields]
 
-            related_queries = []
+            # related model search
             for field in self.model_name._meta.get_fields():
-                if (field.is_relation and field.many_to_one) or field.many_to_many:
+                if field.is_relation and field.related_model:
                     rel_model = field.related_model
                     for lookup in ["name", "username", "title", "code"]:
                         if lookup in [f.name for f in rel_model._meta.fields]:
-                            related_queries.append(Q(**{f"{field.name}__{lookup}__icontains": search}))
+                            queries.append(Q(**{f"{field.name}__{lookup}__icontains": search}))
                             break
 
-            combined_queries = char_queries + text_queries + int_queries + related_queries
-            if combined_queries:
-                final_query = combined_queries.pop()
-                for query in combined_queries:
-                    final_query |= query
-                queryset = queryset.filter(final_query)
+            if queries:
+                q = queries.pop()
+                for item in queries:
+                    q |= item
+                queryset = queryset.filter(q)
 
         # ---------------- Date / Date Range Section ----------------
         single_date = params.get("date")
         start_date = params.get("start_date")
         end_date = params.get("end_date")
 
-        if single_date:
-            try:
-                single_date = datetime.strptime(single_date, "%Y-%m-%d").date()
+        try:
+            if single_date:
+                d = datetime.strptime(single_date, "%Y-%m-%d").date()
                 try:
-                    queryset = queryset.filter(date=single_date)
+                    queryset = queryset.filter(date=d)
                 except:
-                    queryset = queryset.filter(created_at__date=single_date)
-            except ValueError:
-                pass
+                    queryset = queryset.filter(created_at__date=d)
 
-        elif start_date and end_date:
-            try:
-                start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-                end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+            elif start_date and end_date:
+                sd = datetime.strptime(start_date, "%Y-%m-%d").date()
+                ed = datetime.strptime(end_date, "%Y-%m-%d").date()
                 try:
-                    queryset = queryset.filter(date__range=[start_date, end_date])
+                    queryset = queryset.filter(date__range=[sd, ed])
                 except:
-                    queryset = queryset.filter(created_at__range=[start_date, end_date])
-            except ValueError:
-                pass
+                    queryset = queryset.filter(created_at__date__range=[sd, ed])
+        except:
+            pass
 
         # ---------------- Keyword Section ----------------
         keyword = params.get("keyword")
@@ -1132,45 +1251,52 @@ class BaseViews(viewsets.ModelViewSet):
             text_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.TextField)]
             int_fields = [f.name for f in self.model_name._meta.fields if isinstance(f, models.IntegerField)]
 
-            char_queries = [Q(**{f"{field}__icontains": keyword}) for field in char_fields]
-            text_queries = [Q(**{f"{field}__icontains": keyword}) for field in text_fields]
+            queries = []
+            queries += [Q(**{f"{field}__icontains": keyword}) for field in char_fields]
+            queries += [Q(**{f"{field}__icontains": keyword}) for field in text_fields]
 
-            int_queries = []
             if keyword.isdigit():
-                for field in int_fields:
-                    int_queries.append(Q(**{f"{field}": int(keyword)}))
+                queries += [Q(**{field: int(keyword)}) for field in int_fields]
 
-            combined_queries = char_queries + text_queries + int_queries
-            if combined_queries:
-                final_query = combined_queries.pop()
-                for query in combined_queries:
-                    final_query |= query
-                queryset = queryset.filter(final_query)
+            if queries:
+                q = queries.pop()
+                for item in queries:
+                    q |= item
+                queryset = queryset.filter(q)
 
-        # ---------------- Dynamic Filters Section ----------------
-        filter_params = {
-            param: value
-            for param, value in params.items()
-            if param not in [
-                "limit", "offset", "date", "start_date", "end_date",
-                "keyword", "depth", "leave_ids", "em_id", "search"
-            ]
+        # ---------------- Dynamic Filters Section (SAFE) ----------------
+        ignored_params = {
+            "limit", "offset", "date", "start_date", "end_date",
+            "keyword", "depth", "leave_ids", "em_id", "search"
         }
 
-        for param, value in filter_params.items():
-            if "__" in param:
-                try:
-                    queryset = queryset.filter(**{param + "__icontains": value})
-                except:
-                    queryset = queryset.filter(**{param: value})
-            else:
-                try:
-                    queryset = queryset.filter(**{param + "__icontains": value})
-                except:
+        for param, value in params.items():
+            if not value or param in ignored_params:
+                continue
+
+            try:
+                # ✅ mapped params (branch, area, etc.)
+                if param in FIELD_MAP:
+                    queryset = queryset.filter(**{FIELD_MAP[param]: value})
+
+                # already contains lookup
+                elif "__" in param:
                     queryset = queryset.filter(**{param: value})
 
+                # direct model field
+                elif hasattr(self.model_name, param):
+                    field = self.model_name._meta.get_field(param)
+                    if isinstance(field, (models.CharField, models.TextField)):
+                        queryset = queryset.filter(**{f"{param}__icontains": value})
+                    else:
+                        queryset = queryset.filter(**{param: value})
+
+            except:
+                # ❗ NEVER crash API
+                pass
+
         return queryset.order_by("-id")
-    
+
     def generate_response(self, success, status_code, message_key, error=None, data=None, page=None):
         model_name = self.model_name.__name__
         message = self.message_templates.get(message_key, "")
@@ -1241,32 +1367,76 @@ class BaseViews(viewsets.ModelViewSet):
         
         # Branch ফিল্টার
         if branch:
-            q_objects = Q()
-            for f in branch_fields:
-                field_name = f.name
-                if isinstance(f, (models.ForeignKey, models.OneToOneField)):
-                    q_objects |= Q(**{f"{field_name}_id": branch.id})
-                elif isinstance(f, models.ManyToManyField):
-                    q_objects |= Q(**{f"{field_name}__id": branch.id})
-                elif isinstance(f, (models.CharField, models.TextField)):
-                    q_objects |= Q(**{field_name: str(branch)})
-            queryset = queryset.filter(q_objects)
+            # ✅ Single branch user → only this branch (Branch model included)
+            allowed_branch_ids = [branch.id]
+
+        elif multibranch:
+            # ✅ No single branch → use multibranch
+            allowed_branch_ids = multibranch
+
+        else:
+            allowed_branch_ids = []
         
+
+        if allowed_branch_ids:
+            # 🔹 Branch model
+            if self.model_name.__name__ == "Branch":
+                queryset = queryset.filter(id__in=allowed_branch_ids)
+
+            # 🔹 All other models
+            elif branch_fields:
+                q_objects = Q()
+                for f in branch_fields:
+                    field_name = f.name
+                    if isinstance(f, (models.ForeignKey, models.OneToOneField)):
+                        q_objects |= Q(**{f"{field_name}_id__in": allowed_branch_ids})
+
+                    elif isinstance(f, models.ManyToManyField):
+                        q_objects |= Q(**{f"{field_name}__id__in": allowed_branch_ids})
+
+                    elif isinstance(f, (models.CharField, models.TextField)):
+                        branch_names = Branch.objects.filter(
+                            id__in=allowed_branch_ids
+                        ).values_list("name", flat=True)
+
+                        for name in branch_names:
+                            q_objects |= Q(**{field_name: name})
+
+                if q_objects:
+                    queryset = queryset.filter(q_objects)
+
         # Area ফিল্টার
+        # ===============================
+# AREA FILTER (ALL MODELS)
+# ===============================
         if area:
-            area_fields = [f for f in self.model_name._meta.get_fields() if "area" in f.name.lower()]
-            if area_fields:
+            area_fields = [
+                f for f in self.model_name._meta.get_fields()
+                if "area" in f.name.lower()
+            ]
+
+            # 🔹 Area model নিজে
+            if self.model_name.__name__ == "Area":
+                queryset = queryset.filter(id=area.id)
+
+            # 🔹 Other models (যেগুলোর ভেতরে area field আছে)
+            elif area_fields:
                 q_objects = Q()
                 for f in area_fields:
                     field_name = f.name
+
                     if isinstance(f, (models.ForeignKey, models.OneToOneField)):
                         q_objects |= Q(**{f"{field_name}_id": area.id})
+
                     elif isinstance(f, models.ManyToManyField):
                         q_objects |= Q(**{f"{field_name}__id": area.id})
+
                     elif isinstance(f, (models.CharField, models.TextField)):
                         q_objects |= Q(**{field_name: str(area)})
-                queryset = queryset.filter(q_objects)
-        
+
+                if q_objects:
+                    queryset = queryset.filter(q_objects)
+
         # Customer Group ফিল্টার - এটাই মূল পরিবর্তন
         if customer_group is not None:  # 0 ও valid হতে পারে
             # বিশেষ কেস: যদি মডেল নিজেই CustomerGroup হয়
@@ -1333,6 +1503,9 @@ class BaseViews(viewsets.ModelViewSet):
                 serializer = self.get_serializer(page, many=True)
                 token = encode_jwt({"data": serializer.data})
                 return self.get_paginated_response({"token": token})
+
+
+
 
     def retrieve(self, request, *args, **kwargs):
         if "retrieve" in self.methods:

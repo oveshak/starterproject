@@ -6,7 +6,7 @@ from products.models import Product
 from products.serializers import ProductSerializer
 from users.models import Area, Branch, Users
 from users.serializers import AreaSerializer, BranchSerializer, UsersSerializer
-from .models import DailySaving, Purchase, PurchaseItem, PurchaseReturn, Sale, SaleItem, Payment, Cheque, AffiliateCommission,LoanType, InstallmentType, Installment, Loan, Transection
+from .models import BranchAccount, DailySaving, DownPayment, Purchase, PurchaseItem, PurchaseReturn, Sale, SaleItem, Payment, Cheque, AffiliateCommission,LoanType, InstallmentType, Installment, Loan, Transection
 from globalapp.serializers import GlobalSerializers
 
 
@@ -258,6 +258,16 @@ class DailySavingSerializer(GlobalSerializers):
         model = DailySaving
         fields = '__all__'  # or specify the fields you want to include
 
+
+
+
+class DownPaymentSerializer(GlobalSerializers):
+    class Meta:
+        model =  DownPayment
+        fields = '__all__'  # or specify the fields you want to include
+
+
+
 class InstallmentSerializer(serializers.ModelSerializer):
     # Accept IDs for input
     customer_name = serializers.PrimaryKeyRelatedField(
@@ -293,13 +303,17 @@ class LoanSerializer(GlobalSerializers):
     customer_name_display = serializers.CharField(source='customer_name.full_name', read_only=True)
     loan_type_name = serializers.CharField(source='loan_type.name', read_only=True)
     installment_type_name = serializers.CharField(source='installment_type.type', read_only=True)
-    installments = InstallmentSerializer(many=True, read_only=True)
+    #installments = InstallmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Loan
         fields = '__all__'
 
 
+class BranchAccountSerializer(GlobalSerializers):
+    class Meta:
+        model = BranchAccount
+        fields = '__all__'
 
 class TransectionSerializer(serializers.ModelSerializer):
     # Nested serializers to show detailed information for customer and received_by fields
