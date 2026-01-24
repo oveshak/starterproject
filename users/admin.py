@@ -57,7 +57,7 @@ class UsersAdmin(ModelAdmin):
 
 @admin.register(Area)
 
-class AreaAdmin(admin.ModelAdmin):
+class AreaAdmin(ModelAdmin):
     list_display = ['name', 'address']   # area_staf M2M, তাই list_display তে ডাইরেক্ট দেখানো যাবে না
     search_fields = ['name', 'address', 'area_staf__email']
     # list_filter = ['manager']  # Area model এ manager নাই, তাই বাদ দিলাম
@@ -70,7 +70,7 @@ class AreaAdmin(admin.ModelAdmin):
 
 
 @admin.register(MultiBranch)
-class MultiBranchAdmin(admin.ModelAdmin):
+class MultiBranchAdmin(ModelAdmin):
     # address ফিল্ড নেই বলে সরিয়ে দিলাম, বদলে কাস্টম কলাম যোগ করেছি
     list_display = ('title', 'branch_count', 'branch_list', 'address_list')
     search_fields = ('title',)
