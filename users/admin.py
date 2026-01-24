@@ -11,7 +11,7 @@ class RolesAdmin(ModelAdmin):
 
 
 @admin.register(Users)
-class UsersAdmin(ModelAdmin):
+class UsersAdmin( ModelAdmin):
     list_display = [
         'name', 'email', 'username', 'phone_number', 'branch', 'area',
         'roles', 'customer_group', 'get_mult_branch',
@@ -65,7 +65,7 @@ class AreaAdmin(ModelAdmin):
     # M2M ফিল্ড admin এ দেখাতে চাইলে কাস্টম মেথড বানাতে হবে
     def get_area_stafs(self, obj):
         return ", ".join([user.email for user in obj.area_staf.all()])
-    get_area_stafs.short_description = "Area Staff"
+    get_area_stafs.short_description = "Area Staff ss"
 
 
 
