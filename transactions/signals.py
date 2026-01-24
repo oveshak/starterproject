@@ -130,6 +130,7 @@
 #     if hasattr(instance, "updated_at"):
 #         Loan.objects.filter(pk=instance.pk).update(updated_at=timezone.now())
 
+import json
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from datetime import timedelta, date
@@ -431,11 +432,77 @@ def _process_product_receipt(instance):
         except Product.DoesNotExist:
             raise ValidationError(f"Product (id={pid}) not found.")
         _adjust_branch_stock(instance.branch_name, product, qty)
-def deduct_branch_and_variation_stock(branch, variation, qty):
+# def deduct_branch_and_variation_stock(branch, variation, qty):
+#     if qty <= 0:
+#         raise ValidationError("Quantity must be positive")
+
+#     # 🔒 lock branch stock row
+#     branch_stock = (
+#         BranchProductStock.objects
+#         .select_for_update()
+#         .filter(
+#             stock_branch=branch,
+#             product_variation=variation
+#         )
+#         .first()
+#     )
+
+#     if not branch_stock:
+#         raise ValidationError(
+#             f"No branch stock for variation {variation.id}"
+#         )
+
+#     # ✅ validate BEFORE update (int vs int)
+#     if branch_stock.quantity < qty:
+#         raise ValidationError(
+#             f"Branch stock insufficient. Have {branch_stock.quantity}, need {qty}"
+#         )
+
+#     if variation.quantity < qty:
+#         raise ValidationError(
+#             f"Variation stock insufficient. Have {variation.quantity}, need {qty}"
+#         )
+
+#     # ✅ update WITHOUT triggering clean()
+#     BranchProductStock.objects.filter(
+#         id=branch_stock.id
+#     ).update(
+#         quantity=F("quantity") - qty
+#     )
+
+#     Variation.objects.filter(
+#         id=variation.id
+#     ).update(
+#         quantity=F("quantity") - qty
+#     )
+
+
+from django.db import transaction
+from django.db.models import F
+from rest_framework.exceptions import ValidationError
+
+
+def deduct_branch_and_variation_stock(
+    *,
+    branch,
+    variation,
+    qty,
+    unique_key_id=None
+):
+    """
+    ✅ Deduct quantity from:
+       - BranchProductStock.quantity
+       - Variation.quantity
+
+    ✅ If unique_key_id exists:
+       - remove from BranchProductStock.unickkey
+       - remove from Variation.unickkey (if exists)
+    """
+
     if qty <= 0:
         raise ValidationError("Quantity must be positive")
 
-    # 🔒 lock branch stock row
+    # 🔒 Lock branch stock row
     branch_stock = (
         BranchProductStock.objects
         .select_for_update()
@@ -451,18 +518,42 @@ def deduct_branch_and_variation_stock(branch, variation, qty):
             f"No branch stock for variation {variation.id}"
         )
 
-    # ✅ validate BEFORE update (int vs int)
+    # 🔒 Lock variation row
+    variation = (
+        Variation.objects
+        .select_for_update()
+        .get(id=variation.id)
+    )
+
+    # ✅ Validate quantity
     if branch_stock.quantity < qty:
         raise ValidationError(
-            f"Branch stock insufficient. Have {branch_stock.quantity}, need {qty}"
+            f"Branch stock insufficient "
+            f"(have {branch_stock.quantity}, need {qty})"
         )
 
     if variation.quantity < qty:
         raise ValidationError(
-            f"Variation stock insufficient. Have {variation.quantity}, need {qty}"
+            f"Variation stock insufficient "
+            f"(have {variation.quantity}, need {qty})"
         )
 
-    # ✅ update WITHOUT triggering clean()
+    # 🔑 UNIQUE KEY CASE
+    if unique_key_id:
+        # Branch stock unickkey remove
+        if not branch_stock.unickkey.filter(id=unique_key_id).exists():
+            raise ValidationError(
+                f"UniqueKey {unique_key_id} not found in branch stock"
+            )
+
+        branch_stock.unickkey.remove(unique_key_id)
+
+        # Variation unickkey remove (if relation exists)
+        if hasattr(variation, "unickkey"):
+            if variation.unickkey.filter(id=unique_key_id).exists():
+                variation.unickkey.remove(unique_key_id)
+
+    # ✅ Deduct quantities (DB-level atomic update)
     BranchProductStock.objects.filter(
         id=branch_stock.id
     ).update(
@@ -475,6 +566,48 @@ def deduct_branch_and_variation_stock(branch, variation, qty):
         quantity=F("quantity") - qty
     )
 
+# @receiver(post_save, sender=Loan)
+# def handle_loan_create(sender, instance, created, **kwargs):
+#     if not created:
+#         return
+
+#     if instance.receive_type != "product":
+#         return
+
+#     if not instance.product_details:
+#         return
+
+#     with transaction.atomic():
+#         for row in instance.product_details:
+#             variation_id = row.get("variation_id")
+#             qty = int(row.get("quantity", 0))
+
+#             if not variation_id or qty <= 0:
+#                 continue
+
+#             try:
+#                 variation = Variation.objects.select_for_update().get(
+#                     id=variation_id
+#                 )
+#             except Variation.DoesNotExist:
+#                 raise ValidationError(
+#                     f"Variation {variation_id} not found"
+#                 )
+
+#             deduct_branch_and_variation_stock(
+#                 branch=instance.branch_name,
+#                 variation=variation,
+#                 qty=qty
+#             )
+
+
+import json
+from django.db import transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from rest_framework.exceptions import ValidationError
+
+
 @receiver(post_save, sender=Loan)
 def handle_loan_create(sender, instance, created, **kwargs):
     if not created:
@@ -486,18 +619,26 @@ def handle_loan_create(sender, instance, created, **kwargs):
     if not instance.product_details:
         return
 
+    # 🔥 JSONField safe parse
+    if isinstance(instance.product_details, str):
+        try:
+            rows = json.loads(instance.product_details)
+        except Exception:
+            raise ValidationError("Invalid product_details JSON")
+    else:
+        rows = instance.product_details
+
     with transaction.atomic():
-        for row in instance.product_details:
+        for row in rows:
             variation_id = row.get("variation_id")
             qty = int(row.get("quantity", 0))
+            unique_key_id = row.get("unique_key_id")
 
             if not variation_id or qty <= 0:
                 continue
 
             try:
-                variation = Variation.objects.select_for_update().get(
-                    id=variation_id
-                )
+                variation = Variation.objects.get(id=variation_id)
             except Variation.DoesNotExist:
                 raise ValidationError(
                     f"Variation {variation_id} not found"
@@ -506,9 +647,9 @@ def handle_loan_create(sender, instance, created, **kwargs):
             deduct_branch_and_variation_stock(
                 branch=instance.branch_name,
                 variation=variation,
-                qty=qty
+                qty=qty,
+                unique_key_id=unique_key_id
             )
-
 
 @receiver(post_save, sender=Loan)
 def create_installments_and_transactions(sender, instance, created, **kwargs):

@@ -279,31 +279,45 @@ class BranchProductStockAdminForm(forms.ModelForm):
             self.fields["unickkey"].queryset = (
                 unick.objects.filter(variation__id=variation)  # ❌ যদি reverse relation না থাকে
             )
-
-
 class BranchProductStockSerializer(GlobalSerializers):
-    product_variation = serializers.PrimaryKeyRelatedField(queryset=Variation.objects.all())
-    stock_branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all())
-    unickkey = serializers.PrimaryKeyRelatedField(queryset=unick.objects.all(), many=True, required=False)
+    product_variation = serializers.PrimaryKeyRelatedField(
+        queryset=Variation.objects.all()
+    )
+    stock_branch = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all()
+    )
+    unickkey = serializers.PrimaryKeyRelatedField(
+        queryset=unick.objects.all(),
+        many=True,
+        required=False
+    )
+
+    variation_price = serializers.SerializerMethodField()
 
     class Meta:
         model = BranchProductStock
         fields = "__all__"
 
+    def get_variation_price(self, obj):
+        # 🔥 Decimal → float (JSON safe)
+        return float(obj.product_variation.price)
+
     def validate(self, attrs):
-        variation = attrs.get("product_variation", getattr(self.instance, "product_variation", None))
-        qty = attrs.get("quantity", getattr(self.instance, "quantity", 0))
+        variation = attrs.get(
+            "product_variation",
+            getattr(self.instance, "product_variation", None)
+        )
+        qty = attrs.get(
+            "quantity",
+            getattr(self.instance, "quantity", 0)
+        )
         unicks = attrs.get("unickkey", None)
 
         if variation and variation.isunck:
             cnt = len(unicks or [])
             if qty != cnt:
-                raise serializers.ValidationError({"quantity": f"Quantity must equal UnickKey count ({cnt}) for unique variation."})
+                raise serializers.ValidationError({
+                    "quantity": f"Quantity must equal UnickKey count ({cnt}) for unique variation."
+                })
 
         return attrs
-
-
-
-
-
-
