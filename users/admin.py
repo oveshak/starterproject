@@ -107,7 +107,7 @@ class MultiBranchAdmin(ModelAdmin):
     address_list.short_description = "Addresses"
 
 @admin.register(Branch)
-class BranchAdmin(admin.ModelAdmin):
+class BranchAdmin(ModelAdmin):
     list_display = ['name', 'address', 'phone', 'manager']  # total_area M2M, তাই ডাইরেক্ট রাখা যাবে না
     search_fields = ['name', 'address', 'phone', 'manager__email', 'total_area__name']
     list_filter = ['manager']
