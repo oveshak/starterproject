@@ -280,7 +280,7 @@ class Users(AbstractBaseUser, PermissionsMixin):
         upload_to='nid/back/',
         null=True,
         blank=True,
-        verbose_name="NID Back Image"
+        verbose_name="NID Back Imagesssssss"
     )
     branch = models.ForeignKey(
         Branch,
