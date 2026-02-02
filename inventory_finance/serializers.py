@@ -28,6 +28,8 @@ class StockTransferSerializer(GlobalSerializers):
             data['to_branch_name'] = BranchSerializer(instance.to_branch_name).data
 
         return data
+
+
 # class StockAdjustmentSerializer(GlobalSerializers):
 #     # # POST করার জন্য ID
 #     branch_name = serializers.PrimaryKeyRelatedField(

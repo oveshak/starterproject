@@ -1,40 +1,49 @@
 from django.db import models
 from globalapp.models import Common
 from users.models import Branch, Users
-from products.models import Product
+from products.models import Product, Variation, unick
 from contacts.models import Contact
 from simple_history.models import HistoricalRecords
 
+from django.core.exceptions import ValidationError
 
 class StockTransfer(Common):
     from_branch_name = models.ForeignKey(
-        Branch,
-        on_delete=models.CASCADE,
-        related_name='sent_transfers',
-        verbose_name="From Branch"
+        Branch, on_delete=models.CASCADE, related_name="sent_transfers", verbose_name="From Branch"
     )
     to_branch_name = models.ForeignKey(
-        Branch,
-        on_delete=models.CASCADE,
-        related_name='received_transfers',
-        verbose_name="To Branch"
+        Branch, on_delete=models.CASCADE, related_name="received_transfers", verbose_name="To Branch"
     )
-    transfer_date = models.DateField(
-        verbose_name="Transfer Date"
-    )
-    stc_status = models.CharField(
-        max_length=20,
-        verbose_name="Status"
-    )
-    history = HistoricalRecords()
+    transfer_date = models.DateField(verbose_name="Transfer Date")
 
-    class Meta:
-        verbose_name = "Stock Transfer"
-        verbose_name_plural = "Stock Transfers"
-        ordering = ["-transfer_date"]
+    stc_status = models.CharField(max_length=20, default="draft", verbose_name="Status")
+    is_applied = models.BooleanField(default=False, editable=False)
+
+    def clean(self):
+        if self.from_branch_name_id and self.to_branch_name_id:
+            if self.from_branch_name_id == self.to_branch_name_id:
+                raise ValidationError("From branch এবং To branch একই হতে পারবে না।")
 
     def __str__(self):
         return f"{self.from_branch_name} → {self.to_branch_name} ({self.transfer_date})"
+
+
+class StockTransferLine(models.Model):
+    transfer = models.ForeignKey(StockTransfer, on_delete=models.CASCADE, related_name="lines")
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    variation = models.ForeignKey(Variation, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField(default=0)
+    unickkeys = models.ManyToManyField(unick, blank=True)
+
+    def clean(self):
+        if self.variation_id and self.product_id:
+            if self.variation.product_name_id != self.product_id:
+                raise ValidationError({"variation": "Variation does not belong to product"})
+        if self.quantity <= 0:
+            raise ValidationError({"quantity": "Quantity must be > 0"})
+
+    def __str__(self):
+        return f"{self.product} / {self.variation} x {self.quantity}"
 
 
 class StockAdjustment(Common):
