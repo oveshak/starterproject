@@ -10,6 +10,26 @@ from .serializers import (
     BranchProductStockSerializer
 )
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication
+from .models import Variation
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication
+
+from products.models import Variation
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication
+
+from products.models import Variation
+from .models import BranchProductStock
+
+
 class UnitViewSet(BaseViews):
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
@@ -91,11 +111,7 @@ class BranchProductStockViewSet(BaseViews):
         return qs
     
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework.authentication import SessionAuthentication
-from .models import Variation
+
 
 
 class AdminVariationByProductView(APIView):
@@ -116,19 +132,14 @@ class AdminVariationByProductView(APIView):
             {
                 "id": v.id,
                 "name": v.name or f"Variation {v.id}",
-                "isunck": v.isunck   # ✅ MUST ADD THIS
+                "isunck": v.isunck   #  MUST ADD THIS
 
             }
             for v in qs
         ]
         return Response(data)
     
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework.authentication import SessionAuthentication
 
-from products.models import Variation
 
 
 
@@ -240,13 +251,7 @@ from products.models import Variation
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework.authentication import SessionAuthentication
 
-from products.models import Variation
-from .models import BranchProductStock
 
 # class AdminUnickByVariationView(APIView):
 #     authentication_classes = [SessionAuthentication]
@@ -295,19 +300,19 @@ class AdminUnickByVariationView(APIView):
         variation_id = request.GET.get("variation")
         stock_id = request.GET.get("stock_id")
 
-        print("🔵 API HIT: AdminUnickByVariationView")
+        print(" API HIT: AdminUnickByVariationView")
         print("variation_id =", variation_id)
         print("stock_id =", stock_id)
 
         if not variation_id:
-            print("❌ No variation_id")
+            print(" No variation_id")
             return Response([])
 
         variation = Variation.objects.filter(id=variation_id).first()
         print("variation object =", variation)
 
         if not variation:
-            print("❌ Variation not found")
+            print(" Variation not found")
             return Response([])
 
         qs = variation.unickkey.all()
@@ -324,7 +329,7 @@ class AdminUnickByVariationView(APIView):
         print("🔹 used_ids =", used_ids)
 
         available = qs.exclude(id__in=used_ids)
-        print("✅ available.count() =", available.count())
+        print(" available.count() =", available.count())
 
         return Response([
             {"id": u.id, "text": str(u)}

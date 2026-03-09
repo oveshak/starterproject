@@ -1,4 +1,4 @@
-// // // // console.log("✅ product_variation.js LOADED (Purchase Admin)");
+// // // // console.log(" product_variation.js LOADED (Purchase Admin)");
 
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
@@ -48,7 +48,7 @@
 // // // // });
 
 
-// // // // console.log("✅ product_variation.js LOADED (BranchProductStock Admin)");
+// // // // console.log(" product_variation.js LOADED (BranchProductStock Admin)");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 // // // //   const productField = document.getElementById("id_product_name");
@@ -175,7 +175,7 @@
 
 
 
-// // // // console.log("✅ product_variation.js LOADED (BranchProductStock Admin)");
+// // // // console.log(" product_variation.js LOADED (BranchProductStock Admin)");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 // // // //   const productField = document.getElementById("id_product_name");
@@ -329,7 +329,7 @@
 
 
 
-// // // // console.log("✅ product_variation.js LOADED (BranchProductStock Admin)");
+// // // // console.log(" product_variation.js LOADED (BranchProductStock Admin)");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 // // // //   const productField = document.getElementById("id_product_name");
@@ -481,7 +481,7 @@
 
 
 
-// // // // console.log("✅ BranchProductStock JS loaded");
+// // // // console.log(" BranchProductStock JS loaded");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 // // // //   const productField = document.getElementById("id_product_name");
@@ -562,7 +562,7 @@
 
 
 
-// // // // console.log("✅ BranchProductStock Variation JS Loaded");
+// // // // console.log(" BranchProductStock Variation JS Loaded");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 
@@ -658,7 +658,7 @@
 // // // // });
 
 
-// // // // console.log("✅ BranchProductStock Variation JS Loaded");
+// // // // console.log(" BranchProductStock Variation JS Loaded");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
 
@@ -748,10 +748,10 @@
 
 
 
-// // // // console.log("🟢 product_variation.js LOADED");
+// // // // console.log(" product_variation.js LOADED");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
-// // // //   console.log("🟢 DOMContentLoaded fired");
+// // // //   console.log(" DOMContentLoaded fired");
 
 // // // //   const productField   = document.getElementById("id_product_name");
 // // // //   const variationField = document.getElementById("id_product_variation");
@@ -763,7 +763,7 @@
 // // // //   console.log("unickFrom =", unickFrom);
 
 // // // //   if (!productField || !variationField) {
-// // // //     console.error("❌ productField or variationField NOT FOUND");
+// // // //     console.error(" productField or variationField NOT FOUND");
 // // // //     return;
 // // // //   }
 
@@ -790,7 +790,7 @@
 // // // //         return r.json();
 // // // //       })
 // // // //       .then(data => {
-// // // //         console.log("📦 variation data =", data);
+// // // //         console.log(" variation data =", data);
 
 // // // //         data.forEach(v => {
 // // // //           variationMeta[v.id] = v.isunck;
@@ -801,7 +801,7 @@
 // // // //         });
 // // // //       })
 // // // //       .catch(err => {
-// // // //         console.error("❌ variation fetch error:", err);
+// // // //         console.error(" variation fetch error:", err);
 // // // //       });
 // // // //   }
 
@@ -810,7 +810,7 @@
 // // // //     console.log("➡️ loadUnicks called, variationId =", variationId);
 
 // // // //     if (!unickFrom) {
-// // // //       console.error("❌ unickFrom NOT FOUND");
+// // // //       console.error(" unickFrom NOT FOUND");
 // // // //       return;
 // // // //     }
 
@@ -827,7 +827,7 @@
 // // // //         return r.json();
 // // // //       })
 // // // //       .then(data => {
-// // // //         console.log("📦 unick data =", data);
+// // // //         console.log(" unick data =", data);
 
 // // // //         if (!data.length) {
 // // // //           console.warn("⚠️ No unick returned from backend");
@@ -842,7 +842,7 @@
 // // // //         });
 // // // //       })
 // // // //       .catch(err => {
-// // // //         console.error("❌ unick fetch error:", err);
+// // // //         console.error(" unick fetch error:", err);
 // // // //       });
 // // // //   }
 
@@ -879,16 +879,16 @@
 
 
 
-// // // // console.log("🟢 product_variation.js LOADED");
+// // // // console.log(" product_variation.js LOADED");
 
 // // // // document.addEventListener("DOMContentLoaded", function () {
-// // // //   console.log("🟢 DOMContentLoaded fired");
+// // // //   console.log(" DOMContentLoaded fired");
 
 // // // //   const productField   = document.getElementById("id_product_name");
 // // // //   const variationField = document.getElementById("id_product_variation");
 // // // //   const qtyField       = document.getElementById("id_quantity");
 
-// // // //   // ✅ M2M field (works even if filter_horizontal not showing from/to)
+// // // //   //  M2M field (works even if filter_horizontal not showing from/to)
 // // // //   const unickSelect = document.getElementById("id_unickkey");
 
 // // // //   console.log("productField =", productField);
@@ -896,7 +896,7 @@
 // // // //   console.log("unickSelect =", unickSelect);
 
 // // // //   if (!productField || !variationField) {
-// // // //     console.error("❌ productField or variationField NOT FOUND");
+// // // //     console.error(" productField or variationField NOT FOUND");
 // // // //     return;
 // // // //   }
 
@@ -929,12 +929,12 @@
 // // // //           variationField.appendChild(opt);
 // // // //         });
 // // // //       })
-// // // //       .catch(err => console.error("❌ variation fetch error:", err));
+// // // //       .catch(err => console.error(" variation fetch error:", err));
 // // // //   }
 
 // // // //   function loadUnicks(variationId) {
 // // // //     if (!unickSelect) {
-// // // //       console.error("❌ id_unickkey NOT FOUND (unick field not rendered?)");
+// // // //       console.error(" id_unickkey NOT FOUND (unick field not rendered?)");
 // // // //       return;
 // // // //     }
 
@@ -949,7 +949,7 @@
 // // // //     fetch(url)
 // // // //       .then(r => r.json())
 // // // //       .then(data => {
-// // // //         console.log("📦 unick data =", data);
+// // // //         console.log(" unick data =", data);
 
 // // // //         data.forEach(u => {
 // // // //           const opt = document.createElement("option");
@@ -960,7 +960,7 @@
 
 // // // //         syncQtyWithUnicks();
 // // // //       })
-// // // //       .catch(err => console.error("❌ unick fetch error:", err));
+// // // //       .catch(err => console.error(" unick fetch error:", err));
 // // // //   }
 
 // // // //   productField.addEventListener("change", () => {
@@ -998,22 +998,22 @@
 
 
 
-// // // console.log("🟢 product_variation.js LOADED");
+// // // console.log(" product_variation.js LOADED");
 
 // // // document.addEventListener("DOMContentLoaded", function () {
-// // //   console.log("🟢 DOMContentLoaded fired");
+// // //   console.log(" DOMContentLoaded fired");
 
 // // //   const productField   = document.getElementById("id_product_name");
 // // //   const variationField = document.getElementById("id_product_variation");
 // // //   const qtyField       = document.getElementById("id_quantity");
-// // //   const unickSelect    = document.getElementById("id_unickkey"); // ✅ Unfold compatible
+// // //   const unickSelect    = document.getElementById("id_unickkey"); //  Unfold compatible
 
 // // //   console.log("productField =", productField);
 // // //   console.log("variationField =", variationField);
 // // //   console.log("unickSelect =", unickSelect);
 
 // // //   if (!productField || !variationField) {
-// // //     console.error("❌ productField or variationField NOT FOUND");
+// // //     console.error(" productField or variationField NOT FOUND");
 // // //     return;
 // // //   }
 
@@ -1047,7 +1047,7 @@
 // // //         return r.json();
 // // //       })
 // // //       .then(data => {
-// // //         console.log("📦 variation data =", data);
+// // //         console.log(" variation data =", data);
 
 // // //         data.forEach(v => {
 // // //           variationMeta[String(v.id)] = v.isunck;
@@ -1057,14 +1057,14 @@
 // // //           variationField.appendChild(opt);
 // // //         });
 // // //       })
-// // //       .catch(err => console.error("❌ variation fetch error:", err));
+// // //       .catch(err => console.error(" variation fetch error:", err));
 // // //   }
 
 // // //   function loadUnicks(variationId) {
 // // //     console.log("➡️ loadUnicks called, variationId =", variationId);
 
 // // //     if (!unickSelect) {
-// // //       console.error("❌ id_unickkey NOT FOUND (unick field not rendered?)");
+// // //       console.error(" id_unickkey NOT FOUND (unick field not rendered?)");
 // // //       return;
 // // //     }
 
@@ -1082,7 +1082,7 @@
 // // //         return r.json();
 // // //       })
 // // //       .then(data => {
-// // //         console.log("📦 unick data =", data);
+// // //         console.log(" unick data =", data);
 
 // // //         data.forEach(u => {
 // // //           const opt = document.createElement("option");
@@ -1094,7 +1094,7 @@
 // // //         // after load, qty should be 0 until user selects
 // // //         syncQtyWithSelectedUnicks();
 // // //       })
-// // //       .catch(err => console.error("❌ unick fetch error:", err));
+// // //       .catch(err => console.error(" unick fetch error:", err));
 // // //   }
 
 // // //   productField.addEventListener("change", () => {
@@ -1113,7 +1113,7 @@
 
 // // //     if (variationMeta[vid]) {
 // // //       console.log("🔐 isunck = TRUE → loading unicks");
-// // //       if (qtyField) qtyField.readOnly = true; // ✅ user type করতে পারবে না, কিন্তু auto-update হবে
+// // //       if (qtyField) qtyField.readOnly = true; //  user type করতে পারবে না, কিন্তু auto-update হবে
 // // //       loadUnicks(vid);
 // // //     } else {
 // // //       console.log("🔓 isunck = FALSE");
@@ -1122,7 +1122,7 @@
 // // //     }
 // // //   });
 
-// // //   // ✅ manual select => quantity auto sync
+// // //   //  manual select => quantity auto sync
 // // //   if (unickSelect) {
 // // //     unickSelect.addEventListener("change", syncQtyWithSelectedUnicks);
 // // //     unickSelect.addEventListener("click", syncQtyWithSelectedUnicks);
@@ -1135,10 +1135,10 @@
 // // // });
 
 
-// // console.log("🟢 product_variation.js LOADED");
+// // console.log(" product_variation.js LOADED");
 
 // // document.addEventListener("DOMContentLoaded", function () {
-// //   console.log("🟢 DOMContentLoaded fired");
+// //   console.log(" DOMContentLoaded fired");
 
 // //   const productField   = document.getElementById("id_product_name");
 // //   const variationField = document.getElementById("id_product_variation");
@@ -1160,7 +1160,7 @@
 // //   console.log("unickBase =", unickBase, "usingFilterHorizontal =", usingFilterHorizontal);
 
 // //   if (!productField || !variationField) {
-// //     console.error("❌ productField or variationField NOT FOUND");
+// //     console.error(" productField or variationField NOT FOUND");
 // //     return;
 // //   }
 
@@ -1202,7 +1202,7 @@
 // //   function loadVariations(productId) {
 // //     console.log("➡️ loadVariations called, productId =", productId);
 
-// //     // ✅ preserve currently selected variation (edit/update support)
+// //     //  preserve currently selected variation (edit/update support)
 // //     const prevVariationId = String(variationField.value || "");
 
 // //     variationField.innerHTML = '<option value="">---------</option>';
@@ -1218,7 +1218,7 @@
 // //         return r.json();
 // //       })
 // //       .then(data => {
-// //         console.log("📦 variation data =", data);
+// //         console.log(" variation data =", data);
 
 // //         data.forEach(v => {
 // //           variationMeta[String(v.id)] = !!v.isunck;
@@ -1228,19 +1228,19 @@
 // //           variationField.appendChild(opt);
 // //         });
 
-// //         // ✅ re-select previous variation (edit/update)
+// //         //  re-select previous variation (edit/update)
 // //         if (prevVariationId) {
 // //           variationField.value = prevVariationId;
 
 // //           // if unique -> auto load unicks on edit page
 // //           if (variationMeta[prevVariationId]) {
-// //             console.log("🔁 edit restore: variation is unique → auto load unicks");
+// //             console.log(" edit restore: variation is unique → auto load unicks");
 // //             if (qtyField) qtyField.readOnly = true;
 // //             loadUnicks(prevVariationId);
 // //           }
 // //         }
 // //       })
-// //       .catch(err => console.error("❌ variation fetch error:", err));
+// //       .catch(err => console.error(" variation fetch error:", err));
 // //   }
 
 // //   function renderUnicks(data, selectedIdsSet) {
@@ -1283,11 +1283,11 @@
 // //     console.log("➡️ loadUnicks called, variationId =", variationId);
 
 // //     if (!unickBase && !usingFilterHorizontal) {
-// //       console.error("❌ Unick field not rendered");
+// //       console.error(" Unick field not rendered");
 // //       return;
 // //     }
 
-// //     // ✅ preserve currently selected unicks (edit/update)
+// //     //  preserve currently selected unicks (edit/update)
 // //     const prevSelected = getSelectedUnickIds();
 // //     const selectedSet = new Set(prevSelected);
 
@@ -1301,10 +1301,10 @@
 // //         return r.json();
 // //       })
 // //       .then(data => {
-// //         console.log("📦 unick data =", data);
+// //         console.log(" unick data =", data);
 // //         renderUnicks(data, selectedSet);
 // //       })
-// //       .catch(err => console.error("❌ unick fetch error:", err));
+// //       .catch(err => console.error(" unick fetch error:", err));
 // //   }
 
 // //   productField.addEventListener("change", () => {
@@ -1341,7 +1341,7 @@
 // //     }
 // //   });
 
-// //   // ✅ quantity sync triggers (works for both UI types)
+// //   //  quantity sync triggers (works for both UI types)
 // //   function attachQtySync() {
 // //     if (usingFilterHorizontal) {
 // //       // when user adds/removes
@@ -1369,7 +1369,7 @@
 
 // //   attachQtySync();
 
-// //   // ✅ edit page initial load
+// //   //  edit page initial load
 // //   if (productField.value) {
 // //     loadVariations(productField.value);
 
@@ -1383,10 +1383,10 @@
 
 
 // // admin/js/product_variation.js
-// console.log("🟢 product_variation.js LOADED");
+// console.log(" product_variation.js LOADED");
 
 // document.addEventListener("DOMContentLoaded", function () {
-//   console.log("🟢 DOMContentLoaded fired");
+//   console.log(" DOMContentLoaded fired");
 
 //   const productField   = document.getElementById("id_product_name");
 //   const variationField = document.getElementById("id_product_variation");
@@ -1409,7 +1409,7 @@
 //   console.log("usingFilterHorizontal =", usingFilterHorizontal);
 
 //   if (!productField || !variationField) {
-//     console.error("❌ productField or variationField NOT FOUND");
+//     console.error(" productField or variationField NOT FOUND");
 //     return;
 //   }
 
@@ -1421,7 +1421,7 @@
 //   }
 
 //   /**
-//    * ✅ FIX: Always trust the ORIGINAL (hidden) base select first.
+//    *  FIX: Always trust the ORIGINAL (hidden) base select first.
 //    * Because on edit page, Django already marks the saved unicks as selected there.
 //    * filter_horizontal UI may not be initialized yet when our JS runs.
 //    */
@@ -1485,7 +1485,7 @@
 //         return r.json();
 //       })
 //       .then(data => {
-//         console.log("📦 variation data =", data);
+//         console.log(" variation data =", data);
 
 //         data.forEach(v => {
 //           variationMeta[String(v.id)] = !!v.isunck;
@@ -1495,19 +1495,19 @@
 //           variationField.appendChild(opt);
 //         });
 
-//         // ✅ restore previous selection
+//         //  restore previous selection
 //         if (prevVariationId) {
 //           variationField.value = prevVariationId;
 
 //           // if unique, load unicks
 //           if (variationMeta[prevVariationId]) {
-//             console.log("🔁 edit restore: unique variation → auto load unicks");
+//             console.log(" edit restore: unique variation → auto load unicks");
 //             if (qtyField) qtyField.readOnly = true;
 //             loadUnicks(prevVariationId);
 //           }
 //         }
 //       })
-//       .catch(err => console.error("❌ variation fetch error:", err));
+//       .catch(err => console.error(" variation fetch error:", err));
 //   }
 
 //   function renderUnicks(data, selectedIdsSet) {
@@ -1550,12 +1550,12 @@
 //     console.log("➡️ loadUnicks called, variationId =", variationId);
 
 //     if (!unickBase && !usingFilterHorizontal) {
-//       console.error("❌ Unick field not rendered");
+//       console.error(" Unick field not rendered");
 //       return;
 //     }
 
 //     /**
-//      * ✅ FIX: preserve previous selected UNICKS properly
+//      *  FIX: preserve previous selected UNICKS properly
 //      * If edit page had 3 saved unicks, we keep them, so when you add 2 new,
 //      * qty becomes 5.
 //      */
@@ -1572,10 +1572,10 @@
 //         return r.json();
 //       })
 //       .then(data => {
-//         console.log("📦 unick data =", data);
+//         console.log(" unick data =", data);
 //         renderUnicks(data, selectedSet);
 //       })
-//       .catch(err => console.error("❌ unick fetch error:", err));
+//       .catch(err => console.error(" unick fetch error:", err));
 //   }
 
 //   // ===========================
@@ -1616,7 +1616,7 @@
 //     }
 //   });
 
-//   // ✅ Quantity sync for both widget types
+//   //  Quantity sync for both widget types
 //   function attachQtySync() {
 //     if (usingFilterHorizontal) {
 //       const doSync = () => setTimeout(() => {
@@ -1642,7 +1642,7 @@
 //   attachQtySync();
 
 //   /**
-//    * ✅ FIX: Initial load MUST wait until window.load
+//    *  FIX: Initial load MUST wait until window.load
 //    * because filter_horizontal/unfold widgets complete initialization after DOMContentLoaded.
 //    * Otherwise your saved 3 unicks may look like 0.
 //    */
@@ -1662,10 +1662,10 @@
 
 
 // admin/js/product_variation.js
-console.log("🟢 product_variation.js LOADED");
+console.log(" product_variation.js LOADED");
 
 document.addEventListener("DOMContentLoaded", function () {
-  console.log("🟢 DOMContentLoaded fired");
+  console.log(" DOMContentLoaded fired");
 
   const productField   = document.getElementById("id_product_name");
   const variationField = document.getElementById("id_product_variation");
@@ -1688,7 +1688,7 @@ document.addEventListener("DOMContentLoaded", function () {
   console.log("usingFilterHorizontal =", usingFilterHorizontal);
 
   if (!productField || !variationField) {
-    console.error("❌ productField or variationField NOT FOUND");
+    console.error(" productField or variationField NOT FOUND");
     return;
   }
 
@@ -1699,7 +1699,7 @@ document.addEventListener("DOMContentLoaded", function () {
     sel.innerHTML = "";
   }
 
-  // ✅ Hint / warning UI
+  //  Hint / warning UI
   let qtyHint = null;
   function ensureQtyHint() {
     if (!qtyField) return null;
@@ -1723,7 +1723,7 @@ document.addEventListener("DOMContentLoaded", function () {
     return 0;
   }
 
-  // ✅ only CHECK (manual qty stays)
+  //  only CHECK (manual qty stays)
   function checkQtyMatch() {
     const vid = String(variationField.value || "");
     const isUnique = !!variationMeta[vid];
@@ -1754,7 +1754,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   /**
-   * ✅ Always trust the ORIGINAL (hidden) base select first.
+   *  Always trust the ORIGINAL (hidden) base select first.
    * Because on edit page, Django already marks the saved unicks as selected there.
    */
   function getSelectedUnickIds() {
@@ -1770,8 +1770,8 @@ document.addEventListener("DOMContentLoaded", function () {
     return [];
   }
 
-  // ❌ OLD: qty auto set (removed behaviour)
-  // ✅ now only check
+  //  OLD: qty auto set (removed behaviour)
+  //  now only check
   function setQtyToSelectedUnickCount() {
     checkQtyMatch(); // keep function name to avoid changing other parts
   }
@@ -1786,7 +1786,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function loadVariations(productId) {
-    console.log("➡️ loadVariations called, productId =", productId);
+    console.log(" loadVariations called, productId =", productId);
 
     const prevVariationId = String(variationField.value || "");
 
@@ -1795,15 +1795,15 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!productId) return;
 
     const url = `/admin/variations/?product=${productId}`;
-    console.log("🌐 Fetching variations:", url);
+    console.log(" Fetching variations:", url);
 
     fetch(url)
       .then(r => {
-        console.log("⬅️ variation response status:", r.status);
+        console.log("⬅ variation response status:", r.status);
         return r.json();
       })
       .then(data => {
-        console.log("📦 variation data =", data);
+        console.log(" variation data =", data);
 
         data.forEach(v => {
           variationMeta[String(v.id)] = !!v.isunck;
@@ -1816,16 +1816,16 @@ document.addEventListener("DOMContentLoaded", function () {
         if (prevVariationId) {
           variationField.value = prevVariationId;
 
-          // ✅ keep auto-load unicks (as before) BUT no readonly qty
+          //  keep auto-load unicks (as before) BUT no readonly qty
           if (variationMeta[prevVariationId]) {
-            console.log("🔁 edit restore: unique variation → auto load unicks");
+            console.log(" edit restore: unique variation → auto load unicks");
             loadUnicks(prevVariationId);
           }
         }
 
         checkQtyMatch();
       })
-      .catch(err => console.error("❌ variation fetch error:", err));
+      .catch(err => console.error(" variation fetch error:", err));
   }
 
   function renderUnicks(data, selectedIdsSet) {
@@ -1861,10 +1861,10 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function loadUnicks(variationId) {
-    console.log("➡️ loadUnicks called, variationId =", variationId);
+    console.log(" loadUnicks called, variationId =", variationId);
 
     if (!unickBase && !usingFilterHorizontal) {
-      console.error("❌ Unick field not rendered");
+      console.error(" Unick field not rendered");
       return;
     }
 
@@ -1873,18 +1873,18 @@ document.addEventListener("DOMContentLoaded", function () {
 
     const stockId = document.getElementById("id_id")?.value || "";
     const url = `/admin/unickkeys/?variation=${variationId}&stock_id=${stockId}`;
-    console.log("🌐 Fetching unicks:", url);
+    console.log(" Fetching unicks:", url);
 
     fetch(url)
       .then(r => {
-        console.log("⬅️ unick response status:", r.status);
+        console.log("⬅ unick response status:", r.status);
         return r.json();
       })
       .then(data => {
-        console.log("📦 unick data =", data);
+        console.log(" unick data =", data);
         renderUnicks(data, selectedSet);
       })
-      .catch(err => console.error("❌ unick fetch error:", err));
+      .catch(err => console.error(" unick fetch error:", err));
   }
 
   // ===========================
@@ -1892,10 +1892,10 @@ document.addEventListener("DOMContentLoaded", function () {
   // ===========================
 
   productField.addEventListener("change", () => {
-    console.log("🟡 product changed:", productField.value);
+    console.log(" product changed:", productField.value);
     loadVariations(productField.value);
 
-    // ✅ keep qty manual always
+    //  keep qty manual always
     if (qtyField) qtyField.readOnly = false;
 
     if (usingFilterHorizontal) { clearSelect(unickFrom); clearSelect(unickTo); }
@@ -1906,16 +1906,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
   variationField.addEventListener("change", () => {
     const vid = String(variationField.value || "");
-    console.log("🟡 variation changed:", vid);
+    console.log(" variation changed:", vid);
 
     if (!vid) return;
 
     if (variationMeta[vid]) {
-      console.log("🔐 isunck = TRUE → loading unicks");
-      if (qtyField) qtyField.readOnly = false; // ✅ manual always
+      console.log(" isunck = TRUE → loading unicks");
+      if (qtyField) qtyField.readOnly = false; //  manual always
       loadUnicks(vid);
     } else {
-      console.log("🔓 isunck = FALSE");
+      console.log(" isunck = FALSE");
       if (qtyField) qtyField.readOnly = false;
 
       if (usingFilterHorizontal) { clearSelect(unickFrom); clearSelect(unickTo); }
@@ -1925,7 +1925,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // ✅ sync base select + check only (no qty auto set)
+  //  sync base select + check only (no qty auto set)
   function attachQtySync() {
     if (usingFilterHorizontal) {
       const doSync = () => setTimeout(() => {
@@ -1949,7 +1949,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   attachQtySync();
 
-  // ✅ when user types qty manually -> live check
+  //  when user types qty manually -> live check
   if (qtyField) qtyField.addEventListener("input", checkQtyMatch);
 
   window.addEventListener("load", () => {

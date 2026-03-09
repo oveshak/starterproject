@@ -1182,7 +1182,7 @@ class BaseViews(viewsets.ModelViewSet):
         params = self.request.query_params
 
         # ======================================================
-        # 🔑 FIELD MAP (API param → real DB field)
+        #  FIELD MAP (API param → real DB field)
         # ======================================================
         FIELD_MAP = {
             "branch": "branch_name_id",
@@ -1275,7 +1275,7 @@ class BaseViews(viewsets.ModelViewSet):
                 continue
 
             try:
-                # ✅ mapped params (branch, area, etc.)
+                #  mapped params (branch, area, etc.)
                 if param in FIELD_MAP:
                     queryset = queryset.filter(**{FIELD_MAP[param]: value})
 
@@ -1292,7 +1292,7 @@ class BaseViews(viewsets.ModelViewSet):
                         queryset = queryset.filter(**{param: value})
 
             except:
-                # ❗ NEVER crash API
+                #  NEVER crash API
                 pass
 
         return queryset.order_by("-id")
@@ -1367,11 +1367,11 @@ class BaseViews(viewsets.ModelViewSet):
         
         # Branch ফিল্টার
         if branch:
-            # ✅ Single branch user → only this branch (Branch model included)
+            #  Single branch user → only this branch (Branch model included)
             allowed_branch_ids = [branch.id]
 
         elif multibranch:
-            # ✅ No single branch → use multibranch
+            #  No single branch → use multibranch
             allowed_branch_ids = multibranch
 
         else:

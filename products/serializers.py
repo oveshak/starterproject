@@ -100,7 +100,10 @@ from .models import (
     unick,
 )
 from globalapp.serializers import GlobalSerializers
-
+from rest_framework import serializers
+from django import forms
+from django.core.exceptions import ValidationError
+from .models import BranchProductStock, unick
 
 # -------- BASIC --------
 
@@ -153,8 +156,7 @@ class UnickSerializer(GlobalSerializers):
         fields = "__all__"
 
 
-from rest_framework import serializers
-from .models import Variation, unick
+
 
 class VariationSerializer(GlobalSerializers):
     unickkey = serializers.PrimaryKeyRelatedField(
@@ -203,6 +205,8 @@ class SellingPriceGroupSerializer(GlobalSerializers):
     class Meta:
         model = SellingPriceGroup
         fields = '__all__'
+
+        
 # class BranchProductStockSerializer(GlobalSerializers):
 #     # Writeable fields for POST/PUT
 #     product_name = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
@@ -244,10 +248,6 @@ class SellingPriceGroupSerializer(GlobalSerializers):
 
 
 
-# admin.py
-from django import forms
-from django.core.exceptions import ValidationError
-from .models import BranchProductStock, unick
 
 class BranchProductStockAdminForm(forms.ModelForm):
     class Meta:
@@ -277,7 +277,7 @@ class BranchProductStockAdminForm(forms.ModelForm):
 
             # allowed list = variation’s own unicks minus used
             self.fields["unickkey"].queryset = (
-                unick.objects.filter(variation__id=variation)  # ❌ যদি reverse relation না থাকে
+                unick.objects.filter(variation__id=variation)  #  যদি reverse relation না থাকে
             )
 class BranchProductStockSerializer(GlobalSerializers):
     product_variation = serializers.PrimaryKeyRelatedField(
@@ -299,7 +299,7 @@ class BranchProductStockSerializer(GlobalSerializers):
         fields = "__all__"
 
     def get_variation_price(self, obj):
-        # 🔥 Decimal → float (JSON safe)
+        #  Decimal → float (JSON safe)
         return float(obj.product_variation.price)
 
     def validate(self, attrs):

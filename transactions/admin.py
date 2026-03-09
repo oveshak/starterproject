@@ -38,21 +38,20 @@ class PurchaseAdminForm(forms.ModelForm):
 
 
 @admin.register(Purchase)
-class PurchaseAdmin(admin.ModelAdmin):
-    form = PurchaseAdminForm
+class PurchaseAdmin(ModelAdmin):
+    
     list_display = ['supplier_name', 'purchase_date', 'total_amount', 'purchase_status']
     list_filter = ['purchase_status', 'purchase_date']
-    filter_horizontal = ("unickkey",)
-
-    class Media:
-        js = ("admin/js/purchase_variation_v2.js",)
+    filter_horizontal = ("purchaseitem",)
 
 
 @admin.register(PurchaseItem)
 class PurchaseItemAdmin(ModelAdmin):
-    list_display = ['purchase_name', 'product_name', 'quantity', 'unit_price']
-    search_fields = ['product_name__name', 'purchase_name__id']
-    list_filter = ['product_name', 'purchase_name']
+    form = PurchaseAdminForm
+    filter_horizontal = ("unickkey",)
+
+    class Media:
+        js = ("admin/js/purchase_variation_v2.js",)
 
 @admin.register(PurchaseReturn)
 class PurchaseReturnAdmin(ModelAdmin):
@@ -114,7 +113,7 @@ class DailySavingAdmin(ModelAdmin):
 
 
 @admin.register(DownPayment)
-class DownPaymentAdmin(admin.ModelAdmin):
+class DownPaymentAdmin(ModelAdmin):
     list_display = (
         'title',
         'ispercentage',

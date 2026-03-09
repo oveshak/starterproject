@@ -185,9 +185,11 @@ from users.models import Branch
 # ------------------ BASIC ------------------
 from django.db import models
 from globalapp.models import Common
+from django.core.exceptions import ValidationError
 
-
-# ------------------ BASIC ------------------
+from django.core.exceptions import ValidationError
+from django.db.models import Sum
+# ------------------ Unit ------------------
 
 class Unit(Common):
     name = models.CharField(max_length=50)
@@ -195,13 +197,14 @@ class Unit(Common):
     def __str__(self):
         return self.name
 
+# ------------------ Category ------------------
 
 class Category(Common):
     name = models.CharField(max_length=100)
 
     def __str__(self):
         return self.name
-
+# ------------------ Brand ------------------
 
 class Brand(Common):
     name = models.CharField(max_length=100)
@@ -209,6 +212,7 @@ class Brand(Common):
     def __str__(self):
         return self.name
 
+# ------------------ Warranty ------------------
 
 class Warranty(Common):
     DURATION_TYPES = (
@@ -255,7 +259,7 @@ class VariationAttribute(Common):
     def __str__(self):
         return self.name
 
-
+# ------------------ Unick Key ------------------
 class unick(Common):
     key1 = models.CharField(max_length=100,unique=True)
     key2 = models.CharField(max_length=100,unique=True,null=True)
@@ -264,7 +268,7 @@ class unick(Common):
 
 # ------------------ VARIATION ------------------
 
-from django.core.exceptions import ValidationError
+
 
 class Variation(Common):
     product_name = models.ForeignKey(
@@ -278,7 +282,7 @@ class Variation(Common):
 
     price = models.DecimalField(max_digits=15, decimal_places=2)
     quantity = models.PositiveIntegerField(default=0)
-
+    dealer_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     isunck = models.BooleanField(default=False)
     unickkey = models.ManyToManyField(unick, blank=True)
 
@@ -310,7 +314,7 @@ class VariationAttributeValue(Common):
         return f"{self.attribute.name}: {self.value}"
 
 
-
+# ------------------ SellingPriceGroup VALUE ------------------
 
 class SellingPriceGroup(Common):
     name = models.CharField(
@@ -435,7 +439,7 @@ class SellingPriceGroup(Common):
 #             })
 
 #     def save(self, *args, **kwargs):
-#         self.full_clean()   # 👈 force validation
+#         self.full_clean()   #  force validation
 #         super().save(*args, **kwargs)
 
 #     def __str__(self):
@@ -507,8 +511,6 @@ class SellingPriceGroup(Common):
 
 
 
-from django.core.exceptions import ValidationError
-from django.db.models import Sum
 
 # class BranchProductStock(Common):
 #     product_name = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -557,7 +559,7 @@ from django.db.models import Sum
 #         self.full_clean()
 #         super().save(*args, **kwargs)
 
-
+# ------------------ BranchProductStock VALUE ------------------
 
 class BranchProductStock(Common):
     product_name = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -586,7 +588,7 @@ class BranchProductStock(Common):
             if total + (self.quantity or 0) > self.product_variation.quantity:
                 raise ValidationError({"quantity": "Branch stock exceeds variation stock"})
 
-        # ✅ DO NOT touch M2M here (unickkey) because object may be unsaved
+        #  DO NOT touch M2M here (unickkey) because object may be unsaved
         # Move unique-unick validation to AdminForm.clean() or save_related
 
     def save(self, *args, **kwargs):

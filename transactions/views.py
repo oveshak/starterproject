@@ -15,6 +15,21 @@ from .serializers import (
     SaleItemSerializer, PaymentSerializer, ChequeSerializer, AffiliateCommissionSerializer, TransectionSerializer
 )
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework import status
+from rest_framework.response import Response
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework import permissions
+from .models import Installment, Loan
+from .serializers import InstallmentSerializer, LoanSerializer
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication
+from .models import Variation
+
+
 
 class PurchaseViewSet(BaseViews):
     queryset = Purchase.objects.all()
@@ -23,6 +38,8 @@ class PurchaseViewSet(BaseViews):
     permission_classes = [permissions.IsAuthenticated]
     model_name = Purchase
     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+
+
 
 class PurchaseItemViewSet(BaseViews):
     queryset = PurchaseItem.objects.all()
@@ -110,11 +127,6 @@ class DailySavingViewSet(BaseViews):
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework.authentication import SessionAuthentication
-from .models import Variation
 
 
 class AdminVariationByProductView(APIView):
@@ -133,14 +145,6 @@ class AdminVariationByProductView(APIView):
 
 
 
-from rest_framework import status
-from rest_framework.response import Response
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework import permissions
-from .models import Installment, Loan
-from .serializers import InstallmentSerializer, LoanSerializer
 
 class InstallmentViewSet(BaseViews):
     queryset = Installment.objects.all()
@@ -501,10 +505,10 @@ def normalize_modelname(name):
     if not name:
         return "Unknown"
 
-    # 1️⃣ Take only before colon (:)
+    # 1️ Take only before colon (:)
     name = name.split(":")[0]
 
-    # 2️⃣ Remove anything inside brackets ()
+    # 2️ Remove anything inside brackets ()
     name = re.sub(r"\s*\(.*?\)", "", name)
 
     return name.strip()
@@ -859,7 +863,7 @@ class TransectionViewSet(BaseViews):
 #                 pass
 
 #         # ==========================================================
-#         # 🔥 TRANSECTION SUMMARY (FIXED & OPTIMIZED)
+#         # TRANSECTION SUMMARY (FIXED & OPTIMIZED)
 #         # ==========================================================
 #         # NOTE:
 #         # Using iregex so that:
@@ -1077,7 +1081,7 @@ class TransectionViewSet(BaseViews):
 #                 pass
 
 #         # ==========================================================
-#         # 🔥 SUMMARY QUERYSET (MODELNAME SAFE)
+#         #  SUMMARY QUERYSET (MODELNAME SAFE)
 #         # ==========================================================
 #         summary_qs = queryset.filter(
 #             modelname__iregex=r"(loan|installment|saving)"
@@ -1099,7 +1103,7 @@ class TransectionViewSet(BaseViews):
 #         }
 
 #         # ===============================
-#         # MODELNAME-WISE SUMMARY 🔥
+#         # MODELNAME-WISE SUMMARY 
 #         # ===============================
 #         model_wise_rows = (
 #             summary_qs
@@ -1328,7 +1332,7 @@ class TransectionViewSet(BaseViews):
 #                 pass
 
 #         # ==================================================
-#         # 🔥 MODELNAME + RECEIVED_BY SUMMARY (NEW LOGIC)
+#         #  MODELNAME + RECEIVED_BY SUMMARY (NEW LOGIC)
 #         # ==================================================
 
 #         TARGET_MODELS = [

@@ -41,16 +41,7 @@ class PurchaseItemSerializer(GlobalSerializers):
         model = PurchaseItem
         fields = '__all__'
 
-    def to_representation(self, instance):
-        """Return full nested product and purchase objects"""
-        data = super().to_representation(instance)
-
-        if instance.product_name:
-            data['product_name'] = ProductSerializer(instance.product_name).data
-        if instance.purchase_name:
-            data['purchase_name'] = PurchaseSerializer(instance.purchase_name).data
-
-        return data
+    
 
 
 class PurchaseReturnSerializer(GlobalSerializers):
@@ -249,9 +240,12 @@ class LoanTypeSerializer(GlobalSerializers):
 
 
 class InstallmentTypeSerializer(GlobalSerializers):
+    label = serializers.CharField(source="get_type_display", read_only=True)
+
     class Meta:
         model = InstallmentType
         fields = '__all__'
+        
 
 class DailySavingSerializer(GlobalSerializers):
     class Meta:

@@ -49,11 +49,11 @@
 #     print(f"First Down Payment: {instance.first_down_payment}")
 #     print(f"Loan Type: {getattr(instance.loan_type, 'name', 'N/A')}")
 
-#     # 🔹 Original Loan Amount
+#     #  Original Loan Amount
 #     original_amount = float(instance.amount)
 #     total_amount = original_amount
 
-#     # 🔹 LoanType behaviour_type calculation (percent = original_amount)
+#     #  LoanType behaviour_type calculation (percent = original_amount)
 #     if instance.loan_type and instance.loan_type.behaviour_type:
 #         print("Applying LoanType behaviour_type...")
 #         for item in instance.loan_type.behaviour_type:
@@ -68,13 +68,13 @@
 
 #     print(f"Total Amount before Down Payment: {total_amount:.2f}")
 
-#     # 🔹 First Down Payment
+#     #  First Down Payment
 #     if instance.first_down_payment:
 #         total_amount -= float(instance.first_down_payment)
 #         total_amount = max(total_amount, 0)
 #         print(f"After First Down Payment Deduct: {total_amount:.2f}")
 
-#     # 🔹 InstallmentType check
+#     #  InstallmentType check
 #     installment_type = instance.installment_type
 #     if not installment_type:
 #         print("No InstallmentType. Exiting.")
@@ -85,7 +85,7 @@
 #         print("Invalid Installment Amount. Exiting.")
 #         return
 
-#     # 🔹 Generate installment dates
+#     #  Generate installment dates
 #     start_date = date.today()
 #     dates = generate_installment_dates(start_date, installment_type)
 #     if not dates:
@@ -94,7 +94,7 @@
 
 #     print(f"Generating {len(dates)} Installments (approx)")
 
-#     # 🔹 Create installments
+#     #  Create installments
 #     num_installments = len(dates)
 #     per_installment_amount = round(total_amount / num_installments, 2)
 #     remaining_amount = total_amount
@@ -126,7 +126,7 @@
 #         instance.installment.set(installments, clear=True)
 #         print(f"{len(installments)} installments attached to Loan ID {instance.id}")
 
-#     # 🔹 Update updated_at
+#     #  Update updated_at
 #     if hasattr(instance, "updated_at"):
 #         Loan.objects.filter(pk=instance.pk).update(updated_at=timezone.now())
 
@@ -138,11 +138,32 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 from contacts.models import Customer
 from products.models import BranchProductStock, Variation
-from .models import Loan, Installment, Purchase, Transection, DailySaving
+from .models import Loan, Installment, Purchase, PurchaseItem, Transection, DailySaving
 from decimal import Decimal
 from django.db import models
 from django.core.exceptions import ValidationError
 import traceback
+import json
+from django.db import transaction
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from rest_framework.exceptions import ValidationError
+from django.db.models.signals import m2m_changed
+from django.dispatch import receiver
+from .models import Purchase
+
+from decimal import Decimal, ROUND_HALF_UP
+from datetime import date
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
+from django.dispatch import receiver
+from django.db.models.signals import post_save
+from django.db import transaction
+from django.db.models import F
+from rest_framework.exceptions import ValidationError
+
 
 
 class InsufficientBalanceError(Exception):
@@ -210,7 +231,7 @@ def generate_installment_dates(start_date, installment_type):
     else:
         return dates
 
-    # ✅ KEY LOGIC:
+    #  KEY LOGIC:
     # 1st installment = loan_date + instalment_cullect
     first_date = start_date + delta
 
@@ -251,7 +272,7 @@ def update_customer_balance(customer, amount):
         customer.save(update_fields=['account_balance'])
         print(f"✓ Customer balance updated: {customer.account_balance:.2f}")
     except Exception as e:
-        print(f"❌ Error updating customer balance: {str(e)}")
+        print(f" Error updating customer balance: {str(e)}")
 
 
 def check_and_deduct_balance(customer, amount, purpose="payment"):
@@ -272,7 +293,7 @@ def check_and_deduct_balance(customer, amount, purpose="payment"):
             f"Available: {customer_balance:.2f} Tk, "
             f"Shortage: {(required_amount - customer_balance):.2f} Tk"
         )
-        print(f"❌ {error_msg}")
+        print(f" {error_msg}")
         raise InsufficientBalanceError(error_msg)
     
     # Deduct from balance
@@ -319,9 +340,9 @@ def create_customer_type_transactions(sender, instance, created, **kwargs):
         
         # Display customer group info if available
         if hasattr(instance, 'customer_group') and instance.customer_group:
-            print(f"\n✅ Customer Group: {instance.customer_group} (ID: {instance.customer_group.id if hasattr(instance.customer_group, 'id') else 'N/A'})")
+            print(f"\n Customer Group: {instance.customer_group} (ID: {instance.customer_group.id if hasattr(instance.customer_group, 'id') else 'N/A'})")
         else:
-            print(f"\n❌ Customer Group: NOT ASSIGNED")
+            print(f"\n Customer Group: NOT ASSIGNED")
         
         print(f"\nProcessing Customer Type behaviors...")
        
@@ -369,22 +390,14 @@ def create_customer_type_transactions(sender, instance, created, **kwargs):
                 print(f"     Details: {traceback.format_exc()}")
                 continue
        
-        print(f"✅ Customer type transactions completed for {instance.full_name}")
+        print(f" Customer type transactions completed for {instance.full_name}")
        
     except Exception as e:
-        print(f"\n❌ SIGNAL ERROR for customer {instance.full_name}:")
+        print(f"\n SIGNAL ERROR for customer {instance.full_name}:")
         print(f"   Error: {str(e)}")
         print(f"   Traceback: {traceback.format_exc()}")
 
 
-from decimal import Decimal, ROUND_HALF_UP
-from datetime import date
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models import F
-from django.utils import timezone
-from django.dispatch import receiver
-from django.db.models.signals import post_save
 
 Q2 = Decimal("0.01")
 def q2(x):  # quantize to 2 decimal
@@ -452,7 +465,7 @@ def _process_product_receipt(instance):
 #             f"No branch stock for variation {variation.id}"
 #         )
 
-#     # ✅ validate BEFORE update (int vs int)
+#     #  validate BEFORE update (int vs int)
 #     if branch_stock.quantity < qty:
 #         raise ValidationError(
 #             f"Branch stock insufficient. Have {branch_stock.quantity}, need {qty}"
@@ -463,7 +476,7 @@ def _process_product_receipt(instance):
 #             f"Variation stock insufficient. Have {variation.quantity}, need {qty}"
 #         )
 
-#     # ✅ update WITHOUT triggering clean()
+#     #  update WITHOUT triggering clean()
 #     BranchProductStock.objects.filter(
 #         id=branch_stock.id
 #     ).update(
@@ -477,10 +490,6 @@ def _process_product_receipt(instance):
 #     )
 
 
-from django.db import transaction
-from django.db.models import F
-from rest_framework.exceptions import ValidationError
-
 
 def deduct_branch_and_variation_stock(
     *,
@@ -490,11 +499,11 @@ def deduct_branch_and_variation_stock(
     unique_key_id=None
 ):
     """
-    ✅ Deduct quantity from:
+     Deduct quantity from:
        - BranchProductStock.quantity
        - Variation.quantity
 
-    ✅ If unique_key_id exists:
+     If unique_key_id exists:
        - remove from BranchProductStock.unickkey
        - remove from Variation.unickkey (if exists)
     """
@@ -525,7 +534,7 @@ def deduct_branch_and_variation_stock(
         .get(id=variation.id)
     )
 
-    # ✅ Validate quantity
+    #  Validate quantity
     if branch_stock.quantity < qty:
         raise ValidationError(
             f"Branch stock insufficient "
@@ -553,7 +562,7 @@ def deduct_branch_and_variation_stock(
             if variation.unickkey.filter(id=unique_key_id).exists():
                 variation.unickkey.remove(unique_key_id)
 
-    # ✅ Deduct quantities (DB-level atomic update)
+    #  Deduct quantities (DB-level atomic update)
     BranchProductStock.objects.filter(
         id=branch_stock.id
     ).update(
@@ -601,11 +610,6 @@ def deduct_branch_and_variation_stock(
 #             )
 
 
-import json
-from django.db import transaction
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-from rest_framework.exceptions import ValidationError
 
 
 @receiver(post_save, sender=Loan)
@@ -619,7 +623,7 @@ def handle_loan_create(sender, instance, created, **kwargs):
     if not instance.product_details:
         return
 
-    # 🔥 JSONField safe parse
+    #  JSONField safe parse
     if isinstance(instance.product_details, str):
         try:
             rows = json.loads(instance.product_details)
@@ -794,7 +798,7 @@ def create_installments_and_transactions(sender, instance, created, **kwargs):
                 # IMPORTANT: updated_at manually touch কোরো না
                 # শুধু normal save করলেই হবে (Common/Loan যেটা আছে সেটাই update হবে)
                 instance.save()
-                print(f"✅ {len(installments)} installments attached to Loan ID {instance.id}")
+                print(f" {len(installments)} installments attached to Loan ID {instance.id}")
 
 
             # 7) Touch updated_at (optional; save above already did)
@@ -804,7 +808,7 @@ def create_installments_and_transactions(sender, instance, created, **kwargs):
         print("⚠ Down payment skipped due to insufficient balance")
         raise ValidationError(str(e))
     except Exception as e:
-        print(f"❌ Error creating installments: {str(e)}")
+        print(f" Error creating installments: {str(e)}")
         raise
 
     
@@ -878,15 +882,15 @@ def handle_installment_payment(sender, instance, created, **kwargs):
     if installment_pay > instance.amount:
         actual_payment = instance.amount
         extra_amount = installment_pay - instance.amount
-        print(f"💰 Payment: {installment_pay:.2f}, Due: {current_due:.2f}, Extra: {extra_amount:.2f}")
+        print(f" Payment: {installment_pay:.2f}, Due: {current_due:.2f}, Extra: {extra_amount:.2f}")
     else:
         actual_payment = installment_pay
         extra_amount = Decimal('0')
-        print(f"💵 Payment: {installment_pay:.2f}, Due: {current_due:.2f}")
+        print(f"Payment: {installment_pay:.2f}, Due: {current_due:.2f}")
     
     # Create the transaction based on whether the payment is from the account or normal payment
     if instance.pay_from_account:
-        print(f"💳 Pay from account enabled - processing account deduction...")
+        print(f" Pay from account enabled - processing account deduction...")
         
         try:
             # Check and deduct from account
@@ -922,7 +926,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
                     installment_status='paid',
                     due_amount=0
                 )
-                print(f"✅ Installment FULLY PAID! Due Amount: 0.00")
+                print(f" Installment FULLY PAID! Due Amount: 0.00")
             else:
                 # Partially paid
                 Installment.objects.filter(pk=instance.pk).update(
@@ -933,7 +937,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
             
             # Handle extra payment (if any)
             if extra_amount > 0:
-                print(f"💰 Extra payment: {extra_amount:.2f} - adding to account balance")
+                print(f" Extra payment: {extra_amount:.2f} - adding to account balance")
                 
                 # Add extra to customer account balance
                 update_customer_balance(instance.customer_name, extra_amount)
@@ -961,7 +965,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
     
     else:
         # Normal payment (not from account)
-        print(f"💵 Normal payment processing...")
+        print(f"Normal payment processing...")
 
         # Create transaction for actual installment payment
         transaction = create_transaction_with_customer_info(
@@ -988,7 +992,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
                 installment_status='paid',
                 due_amount=0
             )
-            print(f"✅ Installment FULLY PAID! Due Amount: 0.00")
+            print(f" Installment FULLY PAID! Due Amount: 0.00")
         else:
             # Partially paid
             Installment.objects.filter(pk=instance.pk).update(
@@ -999,7 +1003,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
         
         # Handle extra payment (if any)
         if extra_amount > 0:
-            print(f"💰 Extra payment: {extra_amount:.2f} - adding to account balance")
+            print(f" Extra payment: {extra_amount:.2f} - adding to account balance")
             
             # Add extra to customer account balance
             update_customer_balance(instance.customer_name, extra_amount)
@@ -1059,7 +1063,7 @@ def handle_installment_payment(sender, instance, created, **kwargs):
 #                 )
 #                 installments.append(inst)
 
-#             # ✅ attach installments to loan
+#             #  attach installments to loan
 #             instance.installment.set(installments)
 
 #     transaction.on_commit(_create)
@@ -1092,52 +1096,55 @@ def handle_installment_payment(sender, instance, created, **kwargs):
 #     if not variation:
 #         return
 
-#     # 🔹 Increase stock
+#     #  Increase stock
 #     variation.quantity += qty
 #     variation.save(update_fields=["quantity"])
 
-#     # 🔹 Attach unickkeys if variation is unique
+#     #  Attach unickkeys if variation is unique
 #     if variation.isunck:
 #         variation.unickkey.add(*instance.unickkey.all())
 
 
+
+
+
+
+
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
-from .models import Purchase
+from django.db import transaction
 
+@receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+def purchase_items_added(sender, instance, action, pk_set, **kwargs):
+    """
+    When Purchase.purchaseitem is changed (items added),
+    update stock and attach unick keys to Variation for isunck=True variations.
+    """
 
-@receiver(m2m_changed, sender=Purchase.unickkey.through)
-def attach_unick_to_variation(sender, instance, action, **kwargs):
-    """
-    When unickkey is added to Purchase,
-    attach them to Variation if isunck=True
-    """
+    # ✅ only after items are added
     if action != "post_add":
         return
 
-    variation = instance.purchase_product_variation
-
-    if not variation or not variation.isunck:
+    # pk_set = which PurchaseItem IDs were newly added
+    if not pk_set:
         return
 
-    # 🔥 THIS WILL NOW WORK
-    variation.unickkey.add(*instance.unickkey.all())
+    # ✅ Fetch only newly added items
+    items = PurchaseItem.objects.select_related("purchase_product_variation").filter(pk__in=pk_set)
 
-@receiver(post_save, sender=Purchase)
-def increase_variation_stock_on_purchase(sender, instance, created, **kwargs):
-    if not created:
-        return
+    # ✅ transaction safety (optional but good)
+    with transaction.atomic():
+        for item in items:
+            variation = item.purchase_product_variation
+            if not variation:
+                continue
 
-    variation = instance.purchase_product_variation
-    if variation:
-        variation.quantity += instance.qty
-        variation.save(update_fields=["quantity"])
+            # ✅ Increase stock
+            variation.quantity += item.qty
+            variation.save(update_fields=["quantity"])
 
-
-@receiver(m2m_changed, sender=Purchase.unickkey.through)
-def attach_unick_to_variation(sender, instance, action, **kwargs):
-    if action == "post_add":
-        variation = instance.purchase_product_variation
-        if variation and variation.isunck:
-            variation.unickkey.add(*instance.unickkey.all())
-
+            # ✅ Attach unick keys if variation.isunck
+            if getattr(variation, "isunck", False):
+                keys = item.unickkey.all()
+                if keys.exists():
+                    variation.unickkey.add(*keys)

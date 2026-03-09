@@ -57,6 +57,11 @@
 #     list_display = ['name', 'sku_suffix', 'product_name']
 #     search_fields = ['name', 'sku_suffix']
 #     list_filter = ['product_name']
+
+
+
+
+
 from django.contrib import admin
 from django.forms import ModelForm
 from unfold.admin import ModelAdmin
@@ -73,6 +78,24 @@ from .models import (
     VariationAttributeValue,
     unick,
 )
+from django.core.exceptions import ValidationError
+from django.urls import reverse
+from django.utils.html import format_html
+from django import forms
+from django.core.exceptions import ValidationError
+from products.models import Variation  #  your model name
+from django.contrib import admin
+from django import forms
+from django.core.exceptions import ValidationError
+from .models import BranchProductStock
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
+from rest_framework.authentication import SessionAuthentication
+from products.models import Variation
+
+
 
 
 # ---------- ATTRIBUTE VALUE INLINE ----------
@@ -90,12 +113,17 @@ class VariationInline(admin.TabularInline):
     fk_name = "product_name"
     extra = 1
     show_change_link = True
-    fields = ("sku_suffix", "price", "quantity")
+    fields = ("sku_suffix", "price", "dealer_price_display", "quantity")
+    readonly_fields = ("dealer_price_display",)
+
+    def dealer_price_display(self, obj):
+        return getattr(obj, "dealer_price", "-")
+    dealer_price_display.short_description = "Dealer price"
 
 
 # ---------- PRODUCT ADMIN ----------
-from django.urls import reverse
-from django.utils.html import format_html
+
+
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
     list_display = ["name", "sku", "brand_name", "category_name"]
@@ -104,12 +132,15 @@ class ProductAdmin(ModelAdmin):
 
     
 
-# ---------- VARIATION ADMIN ----------
-from django.core.exceptions import ValidationError
+# ---------- Unick ADMIN ----------
+
 @admin.register(unick)
 class UnickAdmin(ModelAdmin):
     list_display = ("key1", "key2")
     search_fields = ("key1", "key2")
+
+
+# ---------- VariationAdminForm ADMIN ----------
 
 class VariationAdminForm(ModelForm):
     class Meta:
@@ -136,6 +167,8 @@ class VariationAdminForm(ModelForm):
         return cleaned
 
 
+
+# ---------- Variation ADMIN ----------
 @admin.register(Variation)
 class VariationAdmin(ModelAdmin):
     form = VariationAdminForm
@@ -151,26 +184,28 @@ class VariationAdmin(ModelAdmin):
 class VariationAttributeAdmin(ModelAdmin):
     list_display = ["name", "order"]
 
-
+# ---------- Unit ADMIN ----------
 @admin.register(Unit)
 class UnitAdmin(ModelAdmin):
     list_display = ["name"]
 
-
+# ---------- Category ADMIN ----------
 @admin.register(Category)
 class CategoryAdmin(ModelAdmin):
     list_display = ["name"]
 
-
+# ---------- Brand ADMIN ----------
 @admin.register(Brand)
 class BrandAdmin(ModelAdmin):
     list_display = ["name"]
 
-
+# ---------- Warrenty ADMIN ----------
 @admin.register(Warranty)
 class WarrantyAdmin(ModelAdmin):
     list_display = ["name", "duration", "duration_type"]
 
+
+# ---------- SellingPriceGroup ADMIN ----------
 @admin.register(SellingPriceGroup)
 class SellingPriceGroupAdmin(ModelAdmin):
     list_display = ['name', 'price_multiplier']
@@ -190,10 +225,7 @@ class SellingPriceGroupAdmin(ModelAdmin):
 #         js = ("admin/js/product_variation.js",)
 
 
-from django.contrib import admin
-from django import forms
-from django.core.exceptions import ValidationError
-from .models import BranchProductStock
+
 
 # class BranchProductStockAdminForm(forms.ModelForm):
 #     class Meta:
@@ -214,9 +246,7 @@ from .models import BranchProductStock
 #         return cleaned
 
 
-from django import forms
-from django.core.exceptions import ValidationError
-from products.models import Variation  # ✅ your model name
+# ---------- BranchProductStockAdminForm ADMIN ----------
 
 class BranchProductStockAdminForm(forms.ModelForm):
     class Meta:
@@ -235,7 +265,7 @@ class BranchProductStockAdminForm(forms.ModelForm):
         if not product_id:
             product_id = self.data.get("product_name") or None
 
-        # ✅ queryset filter (এতে saved variation list-এর ভিতর থাকবে)
+        #  queryset filter (এতে saved variation list-এর ভিতর থাকবে)
         if product_id:
             self.fields["product_variation"].queryset = Variation.objects.filter(
                 product_name_id=product_id
@@ -243,7 +273,7 @@ class BranchProductStockAdminForm(forms.ModelForm):
         else:
             self.fields["product_variation"].queryset = Variation.objects.none()
 
-        # ✅ edit page এ initial set
+        #  edit page এ initial set
         if self.instance and self.instance.pk and self.instance.product_variation_id:
             self.fields["product_variation"].initial = self.instance.product_variation_id
 
@@ -269,7 +299,7 @@ class BranchProductStockAdminForm(forms.ModelForm):
 
         return cleaned
 
-
+# ----------BranchProductStock ADMIN ----------
 @admin.register(BranchProductStock)
 class BranchProductStockAdmin(ModelAdmin):
     form = BranchProductStockAdminForm
@@ -281,12 +311,8 @@ class BranchProductStockAdmin(ModelAdmin):
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from rest_framework.authentication import SessionAuthentication
-from products.models import Variation
 
+# ----------AdminVariationByProductView ADMIN ----------
 class AdminVariationByProductView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [AllowAny]
@@ -299,7 +325,7 @@ class AdminVariationByProductView(APIView):
             {
                 "id": v.id,
                 "name": v.name,
-                "isunck": v.isunck   # 🔥 REQUIRED
+                "isunck": v.isunck   # REQUIRED
             }
             for v in qs
         ])

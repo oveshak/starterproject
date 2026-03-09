@@ -47,15 +47,8 @@ from django.db.models import Sum, Count, Q
 
 
 
-class Purchase(Common):
-    supplier_name = models.ForeignKey(
-        Contact,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='purchases',
-        verbose_name="Supplier"
-    )
-
+class PurchaseItem(Common):
+   
     purchase_product = models.ForeignKey(
         Product,
         on_delete=models.SET_NULL,
@@ -75,6 +68,31 @@ class Purchase(Common):
 
     qty = models.PositiveIntegerField(verbose_name="Quantity")
 
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = "Purchase Item"
+        verbose_name_plural = "Purchase Items"
+        ordering = ['-id']
+
+    def __str__(self):
+        return f"{self.purchase_product}-{self.purchase_product_variation} ({self.qty} )"
+
+
+
+
+class Purchase(Common):
+    supplier_name = models.ForeignKey(
+        Contact,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='purchases',
+        verbose_name="Supplier"
+    )
+    purchaseitem=models.ManyToManyField(PurchaseItem,blank=True)
+    
+
     purchase_date = models.DateField()
     total_amount = models.DecimalField(max_digits=15, decimal_places=2)
     purchase_status = models.CharField(max_length=20)
@@ -85,35 +103,6 @@ class Purchase(Common):
     class Meta:
         ordering = ['-purchase_date']
 
-
-class PurchaseItem(Common):
-    purchase_name = models.ForeignKey(
-        Purchase,
-        on_delete=models.CASCADE,
-        related_name='items',
-        verbose_name="Purchase"
-    )
-    product_name = models.ForeignKey(
-        Product,
-        on_delete=models.CASCADE,
-        related_name='purchase_items',
-        verbose_name="Product"
-    )
-    quantity = models.IntegerField(verbose_name="Quantity")
-    unit_price = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        verbose_name="Unit Price"
-    )
-    history = HistoricalRecords()
-
-    class Meta:
-        verbose_name = "Purchase Item"
-        verbose_name_plural = "Purchase Items"
-        ordering = ['-id']
-
-    def __str__(self):
-        return f"{self.product_name} ({self.quantity} x {self.unit_price})"
 
 
 class PurchaseReturn(Common):

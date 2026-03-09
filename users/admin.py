@@ -60,6 +60,7 @@ class UsersAdmin( ModelAdmin):
 class AreaAdmin(ModelAdmin):
     list_display = ['name', 'address']   # area_staf M2M, তাই list_display তে ডাইরেক্ট দেখানো যাবে না
     search_fields = ['name', 'address', 'area_staf__email']
+    filter_horizontal = ('area_staf',)
     # list_filter = ['manager']  # Area model এ manager নাই, তাই বাদ দিলাম
 
     # M2M ফিল্ড admin এ দেখাতে চাইলে কাস্টম মেথড বানাতে হবে

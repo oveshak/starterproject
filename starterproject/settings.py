@@ -23,6 +23,7 @@ ALLOWED_HOSTS = ["*"]
 
 # Application definition
 INSTALLED_APPS = [
+    "nested_admin",
     "inventory_finance",
     "transactions",
     "products",
@@ -35,6 +36,7 @@ INSTALLED_APPS = [
     'globalapp',
     'ckeditor',
     'users',
+    
     'des',
     'simple_history',
     'drf_spectacular',

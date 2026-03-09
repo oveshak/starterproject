@@ -136,6 +136,7 @@ class CustomerTypeSerializer(GlobalSerializers):
         return data
     
 
+from rest_framework import serializers
 
 class CustomerSerializer(GlobalSerializers):
     branch_name = serializers.PrimaryKeyRelatedField(
@@ -148,26 +149,39 @@ class CustomerSerializer(GlobalSerializers):
         queryset=CustomerGroup.objects.all(), required=False, allow_null=True
     )
 
+    # ✅ dropdown friendly fields (read-only)
+    label = serializers.CharField(source="full_name", read_only=True)  # label = full_name
+    name = serializers.CharField(source="full_name", read_only=True)   # name = full_name
+    value = serializers.IntegerField(source="id", read_only=True)      # value = id (safe standard)
+
     class Meta:
         model = Customer
-        fields = '__all__'
+        fields = "__all__"  # label/name/value automatically included because declared above
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data['branch_name'] = BranchSerializer(instance.branch_name).data if instance.branch_name else None
-        data['customer_group'] = CustomerGroupSerializer(instance.customer_group).data if instance.customer_group else None
-        data['guarantor'] = ContactSerializer(instance.guarantor).data if instance.guarantor else None
+
+        # nested objects (as you had)
+        data["branch_name"] = (
+            BranchSerializer(instance.branch_name).data if instance.branch_name else None
+        )
+        data["customer_group"] = (
+            CustomerGroupSerializer(instance.customer_group).data if instance.customer_group else None
+        )
+        data["guarantor"] = (
+            ContactSerializer(instance.guarantor).data if instance.guarantor else None
+        )
+
+        # ✅ ensure label/name/value are always present
+        data["label"] = instance.full_name
+        data["name"] = instance.full_name
+        data["value"] = instance.id
+
         return data
 
     def create(self, validated_data):
-        # DON'T pop customer_group - keep it in validated_data
-        group = validated_data.get('customer_group', None)  # Use .get() instead of .pop()
-        
-        # Create customer WITH customer_group included
+        group = validated_data.get("customer_group", None)
         customer = Customer.objects.create(**validated_data)
-        
-        # Add customer to group's members if group exists
         if group:
             group.members.add(customer)
-        
         return customer
