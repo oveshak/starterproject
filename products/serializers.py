@@ -321,3 +321,70 @@ class BranchProductStockSerializer(GlobalSerializers):
                 })
 
         return attrs
+
+
+
+# class BranchProductStockSerializer(GlobalSerializers):
+#     product_variation = serializers.PrimaryKeyRelatedField(
+#         queryset=Variation.objects.all()
+#     )
+#     stock_branch = serializers.PrimaryKeyRelatedField(
+#         queryset=Branch.objects.all()
+#     )
+#     unickkey = serializers.PrimaryKeyRelatedField(
+#         queryset=unick.objects.all(),
+#         many=True,
+#         required=False
+#     )
+
+#     # Read-only display fields
+#     product_name = serializers.SerializerMethodField()
+#     variation_name = serializers.SerializerMethodField()
+#     stock_branch_name = serializers.SerializerMethodField()
+#     unickkey_names = serializers.SerializerMethodField()
+#     variation_price = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = BranchProductStock
+#         fields = "__all__"
+
+#     def get_product_name(self, obj):
+#         if obj.product_variation and obj.product_variation.product:
+#             return obj.product_variation.product.name
+#         return None
+
+#     def get_variation_name(self, obj):
+#         if obj.product_variation:
+#             return obj.product_variation.name
+#         return None
+
+#     def get_stock_branch_name(self, obj):
+#         if obj.stock_branch:
+#             return obj.stock_branch.name
+#         return None
+
+#     def get_unickkey_names(self, obj):
+#         return [u.name for u in obj.unickkey.all()]
+
+#     def get_variation_price(self, obj):
+#         return float(obj.product_variation.price)
+
+#     def validate(self, attrs):
+#         variation = attrs.get(
+#             "product_variation",
+#             getattr(self.instance, "product_variation", None)
+#         )
+#         qty = attrs.get(
+#             "quantity",
+#             getattr(self.instance, "quantity", 0)
+#         )
+#         unicks = attrs.get("unickkey", None)
+
+#         if variation and variation.isunck:
+#             cnt = len(unicks or [])
+#             if qty != cnt:
+#                 raise serializers.ValidationError({
+#                     "quantity": f"Quantity must equal UnickKey count ({cnt}) for unique variation."
+#                 })
+
+#         return attrs

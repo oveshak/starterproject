@@ -374,3 +374,15 @@ class TransectionSerializer(serializers.ModelSerializer):
 #         # Already handled installments via nested serializer
 #         return data
 
+
+
+
+
+
+from rest_framework import serializers
+from .models import CollectionReport
+
+class CollectionReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CollectionReport
+        fields = "__all__"

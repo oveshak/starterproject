@@ -23,6 +23,7 @@ router.register(
     views.DownPaymentViewSet,
     basename='downpayment'
 )
+
 urlpatterns = [
 
     path("_admin/variations/", views.AdminVariationByProductView.as_view()),

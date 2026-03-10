@@ -616,6 +616,476 @@ class TransectionViewSet(BaseViews):
             }
         })
 
+
+
+
+# from decimal import Decimal
+# from collections import defaultdict
+# from io import BytesIO
+
+# from django.db.models import Sum, DecimalField
+# from django.db.models.functions import Coalesce
+# from django.utils import timezone
+# from django.http import HttpResponse
+# from rest_framework import permissions
+# from rest_framework.decorators import action
+# from rest_framework.response import Response
+# from rest_framework_simplejwt.authentication import JWTAuthentication
+
+# from reportlab.lib import colors
+# from reportlab.lib.pagesizes import A4
+# from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+# from reportlab.lib.enums import TA_CENTER, TA_LEFT
+# from reportlab.lib.units import mm
+# from reportlab.platypus import (
+#     SimpleDocTemplate,
+#     Table,
+#     TableStyle,
+#     Paragraph,
+#     Spacer,
+# )
+
+# # from .models import Transection, Installment
+# # from .serializers import TransectionSerializer
+
+
+# class TransectionViewSet(BaseViews):
+#     queryset = Transection.objects.all()
+#     serializer_class = TransectionSerializer
+#     # authentication_classes = [JWTAuthentication]
+#     # permission_classes = [permissions.IsAuthenticated]
+#     model_name = Transection
+#     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy"]
+
+#     def _get_summary_data(self, request):
+#         queryset = self.get_queryset()
+
+#         # =========================
+#         # FILTERS
+#         # =========================
+#         branch = request.GET.get("branch")
+#         area = request.GET.get("area")
+#         customer_group = request.GET.get("customer_group")
+#         from_date = request.GET.get("from_date")
+#         to_date = request.GET.get("to_date")
+#         today = request.GET.get("today")
+#         date = request.GET.get("date")
+
+#         # =========================
+#         # TRANSECTION FILTERS
+#         # =========================
+#         if branch:
+#             queryset = queryset.filter(branch_name_id=branch)
+
+#         if area:
+#             queryset = queryset.filter(area_name_id=area)
+
+#         if customer_group:
+#             queryset = queryset.filter(customer_group_id=customer_group)
+
+#         if date:
+#             queryset = queryset.filter(created_at__date=date)
+#         elif today in ["1", "true", "True"]:
+#             queryset = queryset.filter(created_at__date=timezone.localdate())
+#         else:
+#             if from_date:
+#                 queryset = queryset.filter(created_at__date__gte=from_date)
+
+#             if to_date:
+#                 queryset = queryset.filter(created_at__date__lte=to_date)
+
+#         # =========================
+#         # INSTALLMENT FILTERS
+#         # =========================
+#         installment_queryset = Installment.objects.all()
+
+#         if branch:
+#             installment_queryset = installment_queryset.filter(branch_name_id=branch)
+
+#         if area:
+#             installment_queryset = installment_queryset.filter(area_name_id=area)
+
+#         if customer_group:
+#             try:
+#                 installment_queryset = installment_queryset.filter(
+#                     customer_name__customer_group_id=customer_group
+#                 )
+#             except Exception:
+#                 pass
+
+#         if date:
+#             installment_queryset = installment_queryset.filter(installment_date=date)
+#         elif today in ["1", "true", "True"]:
+#             installment_queryset = installment_queryset.filter(
+#                 installment_date=timezone.localdate()
+#             )
+#         else:
+#             if from_date:
+#                 installment_queryset = installment_queryset.filter(
+#                     installment_date__gte=from_date
+#                 )
+
+#             if to_date:
+#                 installment_queryset = installment_queryset.filter(
+#                     installment_date__lte=to_date
+#                 )
+
+#         # =========================
+#         # TRANSECTION OVERALL SUMMARY
+#         # =========================
+#         transection_overall = queryset.aggregate(
+#             total_amount_sum=Coalesce(
+#                 Sum("amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#             total_paid_amount_sum=Coalesce(
+#                 Sum("paid_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#             total_due_amount_sum=Coalesce(
+#                 Sum("due_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#         )
+
+#         # =========================
+#         # TRANSECTION MODEL NAME WISE
+#         # =========================
+#         model_bucket = defaultdict(lambda: {
+#             "total_amount_sum": Decimal("0.00"),
+#             "total_paid_amount_sum": Decimal("0.00"),
+#             "total_due_amount_sum": Decimal("0.00"),
+#         })
+
+#         for row in queryset.values("modelname", "amount", "paid_amount", "due_amount"):
+#             base_name = normalize_modelname(row["modelname"])
+
+#             model_bucket[base_name]["total_amount_sum"] += row["amount"] or Decimal("0.00")
+#             model_bucket[base_name]["total_paid_amount_sum"] += row["paid_amount"] or Decimal("0.00")
+#             model_bucket[base_name]["total_due_amount_sum"] += row["due_amount"] or Decimal("0.00")
+
+#         transection_modelname_wise = [
+#             {
+#                 "modelname": name,
+#                 "total_amount_sum": data["total_amount_sum"],
+#                 "total_paid_amount_sum": data["total_paid_amount_sum"],
+#                 "total_due_amount_sum": data["total_due_amount_sum"],
+#             }
+#             for name, data in model_bucket.items()
+#         ]
+
+#         # =========================
+#         # TRANSECTION RECEIVED BY WISE
+#         # =========================
+#         transection_received_by_wise = list(
+#             queryset
+#             .values("received_by_id", "received_by__name")
+#             .annotate(
+#                 total_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#                 total_paid_amount_sum=Coalesce(
+#                     Sum("paid_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#                 total_due_amount_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("received_by__name")
+#         )
+
+#         # =========================
+#         # INSTALLMENT OVERALL SUMMARY
+#         # =========================
+#         installment_overall = installment_queryset.aggregate(
+#             total_installment_amount_sum=Coalesce(
+#                 Sum("amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#             total_installment_pay_sum=Coalesce(
+#                 Sum("installment_pay"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#             total_installment_due_sum=Coalesce(
+#                 Sum("due_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=12, decimal_places=2),
+#             ),
+#         )
+
+#         # =========================
+#         # INSTALLMENT RECEIVED BY WISE
+#         # =========================
+#         installment_received_by_wise = list(
+#             installment_queryset
+#             .values("received_by_id", "received_by__name")
+#             .annotate(
+#                 total_installment_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#                 total_installment_pay_sum=Coalesce(
+#                     Sum("installment_pay"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#                 total_installment_due_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=12, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("received_by__name")
+#         )
+
+#         return {
+#             "filters": {
+#                 "branch": branch or "All",
+#                 "area": area or "All",
+#                 "customer_group": customer_group or "All",
+#                 "date": date or "N/A",
+#                 "from_date": from_date or "N/A",
+#                 "to_date": to_date or "N/A",
+#                 "today": today or "No",
+#             },
+#             "transection_summary": {
+#                 "overall": transection_overall,
+#                 "modelname_wise": transection_modelname_wise,
+#                 "received_by_wise": transection_received_by_wise,
+#             },
+#             "installment_summary": {
+#                 "overall": installment_overall,
+#                 "received_by_wise": installment_received_by_wise,
+#             }
+#         }
+
+#     @action(detail=False, methods=["get"], url_path="report-summary")
+#     def summary(self, request):
+#         data = self._get_summary_data(request)
+
+#         return Response({
+#             "success": True,
+#             "status": 200,
+#             "message": "Transection and Installment summary retrieved successfully",
+#             "error": None,
+#             "data": data
+#         })
+
+#     @action(detail=False, methods=["get"], url_path="report-summary-pdf")
+#     def summary_pdf(self, request):
+#         data = self._get_summary_data(request)
+
+#         buffer = BytesIO()
+#         doc = SimpleDocTemplate(
+#             buffer,
+#             pagesize=A4,
+#             rightMargin=20,
+#             leftMargin=20,
+#             topMargin=20,
+#             bottomMargin=20,
+#         )
+
+#         styles = getSampleStyleSheet()
+
+#         title_style = ParagraphStyle(
+#             name="TitleStyle",
+#             parent=styles["Title"],
+#             alignment=TA_CENTER,
+#             fontSize=18,
+#             textColor=colors.HexColor("#0F172A"),
+#             spaceAfter=12,
+#         )
+
+#         sub_title_style = ParagraphStyle(
+#             name="SubTitleStyle",
+#             parent=styles["Normal"],
+#             alignment=TA_CENTER,
+#             fontSize=10,
+#             textColor=colors.HexColor("#475569"),
+#             spaceAfter=16,
+#         )
+
+#         section_style = ParagraphStyle(
+#             name="SectionStyle",
+#             parent=styles["Heading2"],
+#             alignment=TA_LEFT,
+#             fontSize=12,
+#             textColor=colors.white,
+#             backColor=colors.HexColor("#1E3A8A"),
+#             spaceBefore=10,
+#             spaceAfter=8,
+#             leftIndent=6,
+#         )
+
+#         normal_style = styles["Normal"]
+
+#         elements = []
+
+#         def money(v):
+#             return f"{v}"
+
+#         def add_section_title(text):
+#             elements.append(Paragraph(text, section_style))
+#             elements.append(Spacer(1, 6))
+
+#         def make_table(data_rows, col_widths=None, header_bg="#1D4ED8"):
+#             table = Table(data_rows, colWidths=col_widths, repeatRows=1)
+#             table.setStyle(TableStyle([
+#                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(header_bg)),
+#                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+#                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+#                 ("FONTSIZE", (0, 0), (-1, -1), 9),
+#                 ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+#                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.HexColor("#EFF6FF")]),
+#                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+#                 ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#94A3B8")),
+#                 ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+#                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+#                 ("LEFTPADDING", (0, 0), (-1, -1), 8),
+#                 ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+#                 ("TOPPADDING", (0, 0), (-1, -1), 6),
+#                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+#             ]))
+#             return table
+
+#         elements.append(Paragraph("Transection and Installment Summary Report", title_style))
+#         elements.append(
+#             Paragraph(
+#                 f"Generated on {timezone.localdate()}",
+#                 sub_title_style
+#             )
+#         )
+
+#         # Filters Table
+#         add_section_title("Applied Filters")
+#         filter_data = [
+#             ["Branch", data["filters"]["branch"], "Area", data["filters"]["area"]],
+#             ["Customer Group", data["filters"]["customer_group"], "Date", data["filters"]["date"]],
+#             ["From Date", data["filters"]["from_date"], "To Date", data["filters"]["to_date"]],
+#             ["Today", data["filters"]["today"], "", ""],
+#         ]
+#         elements.append(make_table(filter_data, col_widths=[90, 140, 90, 140], header_bg="#334155"))
+#         elements.append(Spacer(1, 12))
+
+#         # Transection Overall
+#         add_section_title("Transection Overall Summary")
+#         tran_overall = data["transection_summary"]["overall"]
+#         tran_overall_table = [
+#             ["Total Amount", "Total Paid", "Total Due"],
+#             [
+#                 money(tran_overall["total_amount_sum"]),
+#                 money(tran_overall["total_paid_amount_sum"]),
+#                 money(tran_overall["total_due_amount_sum"]),
+#             ]
+#         ]
+#         elements.append(make_table(tran_overall_table, col_widths=[170, 170, 170]))
+#         elements.append(Spacer(1, 12))
+
+#         # Installment Overall
+#         add_section_title("Installment Overall Summary")
+#         ins_overall = data["installment_summary"]["overall"]
+#         ins_overall_table = [
+#             ["Installment Amount", "Installment Pay", "Installment Due"],
+#             [
+#                 money(ins_overall["total_installment_amount_sum"]),
+#                 money(ins_overall["total_installment_pay_sum"]),
+#                 money(ins_overall["total_installment_due_sum"]),
+#             ]
+#         ]
+#         elements.append(make_table(ins_overall_table, col_widths=[170, 170, 170], header_bg="#0F766E"))
+#         elements.append(Spacer(1, 12))
+
+#         # Transection Modelname Wise
+#         add_section_title("Transection Modelname Wise")
+#         model_rows = [["Model Name", "Total Amount", "Total Paid", "Total Due"]]
+#         model_data = data["transection_summary"]["modelname_wise"]
+
+#         if model_data:
+#             for item in model_data:
+#                 model_rows.append([
+#                     str(item["modelname"]),
+#                     money(item["total_amount_sum"]),
+#                     money(item["total_paid_amount_sum"]),
+#                     money(item["total_due_amount_sum"]),
+#                 ])
+#         else:
+#             model_rows.append(["No data found", "-", "-", "-"])
+
+#         elements.append(make_table(model_rows, col_widths=[180, 110, 110, 110]))
+#         elements.append(Spacer(1, 12))
+
+#         # Transection Received By Wise
+#         add_section_title("Transection Received By Wise")
+#         tran_received_rows = [["Received By", "Total Amount", "Total Paid", "Total Due"]]
+#         tran_received = data["transection_summary"]["received_by_wise"]
+
+#         if tran_received:
+#             for item in tran_received:
+#                 tran_received_rows.append([
+#                     str(item["received_by__name"] or "N/A"),
+#                     money(item["total_amount_sum"]),
+#                     money(item["total_paid_amount_sum"]),
+#                     money(item["total_due_amount_sum"]),
+#                 ])
+#         else:
+#             tran_received_rows.append(["No data found", "-", "-", "-"])
+
+#         elements.append(make_table(tran_received_rows, col_widths=[180, 110, 110, 110], header_bg="#7C3AED"))
+#         elements.append(Spacer(1, 12))
+
+#         # Installment Received By Wise
+#         add_section_title("Installment Received By Wise")
+#         ins_received_rows = [["Received By", "Installment Amount", "Installment Pay", "Installment Due"]]
+#         ins_received = data["installment_summary"]["received_by_wise"]
+
+#         if ins_received:
+#             for item in ins_received:
+#                 ins_received_rows.append([
+#                     str(item["received_by__name"] or "N/A"),
+#                     money(item["total_installment_amount_sum"]),
+#                     money(item["total_installment_pay_sum"]),
+#                     money(item["total_installment_due_sum"]),
+#                 ])
+#         else:
+#             ins_received_rows.append(["No data found", "-", "-", "-"])
+
+#         elements.append(make_table(ins_received_rows, col_widths=[180, 110, 110, 110], header_bg="#BE185D"))
+#         elements.append(Spacer(1, 10))
+
+#         elements.append(
+#             Paragraph(
+#                 "This report is system generated.",
+#                 ParagraphStyle(
+#                     name="FooterStyle",
+#                     parent=normal_style,
+#                     alignment=TA_CENTER,
+#                     fontSize=9,
+#                     textColor=colors.HexColor("#64748B"),
+#                     spaceBefore=10,
+#                 )
+#             )
+#         )
+
+#         doc.build(elements)
+
+#         buffer.seek(0)
+#         response = HttpResponse(buffer, content_type="application/pdf")
+#         response["Content-Disposition"] = 'attachment; filename="transection_summary_report.pdf"'
+#         return response
+
+
 # from django.db.models import Sum, Value, DecimalField
 # from django.db.models.functions import Coalesce
 # from rest_framework.views import APIView

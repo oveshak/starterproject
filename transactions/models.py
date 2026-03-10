@@ -380,7 +380,7 @@ class InstallmentType(Common):
         verbose_name="Type"
     )
     instalment_cullect = models.IntegerField(verbose_name="Amount")
-    total_duration = models.IntegerField(
+    total_duration = models.FloatField(
         null=True,
         blank=True,
         verbose_name="Total Duration"
@@ -529,6 +529,7 @@ class Installment(Common):
                 self.installment_status = "due"
                 self.due_amount = due - paid
             self.save(update_fields=["installment_status", "due_amount"])
+
 
 class DownPayment(Common):
 
@@ -823,3 +824,32 @@ class Transection(Common):
         return f"{self.transection_type} - {self.amount} for {self.modelname}"
 
 
+
+
+from django.db import models
+
+class CollectionReport(models.Model):
+    branch_name = models.ForeignKey(
+        Branch, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    area_name = models.ForeignKey(
+        Area, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    customer_group = models.ForeignKey(
+        CustomerGroup, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    received_by = models.ForeignKey(
+        Users, on_delete=models.SET_NULL, null=True, blank=True
+    )
+
+    modelname = models.CharField(max_length=255, null=True, blank=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    due_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    report_date = models.DateField(null=True, blank=True)
+
+    status = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.modelname or 'Report'} - {self.report_date}"
