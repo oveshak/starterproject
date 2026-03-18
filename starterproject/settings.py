@@ -192,19 +192,81 @@ WKHTMLTOPDF_PATH = '/path/to/wkhtmltopdf'
 os.environ["PATH"] += os.pathsep + os.path.dirname(WKHTMLTOPDF_PATH)
 
 # Unfold Admin UI
+
 UNFOLD = {
-    "SITE_TITLE": "Management Super Admin",
+    "SITE_TITLE": "Management Admin",
     "SITE_HEADER": "Management Super Admin",
+    "SITE_SUBHEADER": "Smart business control panel",
     "SITE_BRAND": "Your Brand",
-    "USE_THEME": True,
+    "SITE_SYMBOL": "admin_panel_settings",
+    "SITE_URL": "/",
     "SITE_DROPDOWN": [
-        {
-            "icon": "list",
-            "title": _("Activity Log"),
-            "link": reverse_lazy("admin:activity-log"),
-        },
-    ]
+            {
+                "icon": "list",
+                "title": _("Activity Log"),
+                "link": reverse_lazy("admin:activity-log"),
+            },
+    ],
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": _("Dashboard"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Dashboard"),
+                        "icon": "space_dashboard",
+                        "link": reverse_lazy("admin:index"),
+                    },
+                ],
+            },
+            {
+                "title": _("Applications"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Authentication"),
+                        "icon": "admin_panel_settings",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "auth"}),
+                    },
+                    {
+                        "title": _("Contacts"),
+                        "icon": "contacts",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "contacts"}),
+                    },
+                    {
+                        "title": _("Inventory Finance"),
+                        "icon": "account_balance_wallet",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "inventory_finance"}),
+                    },
+                    {
+                        "title": _("Products"),
+                        "icon": "inventory_2",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "products"}),
+                    },
+                    {
+                        "title": _("Transactions"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "transactions"}),
+                    },
+                    {
+                        "title": _("Users"),
+                        "icon": "group",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "users"}),
+                    },
+                    {
+                        "title": _("Token Blacklist"),
+                        "icon": "block",
+                        "link": reverse_lazy("admin:app_list", kwargs={"app_label": "token_blacklist"}),
+                    },
+                ],
+            },
+        ],
+    },
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-

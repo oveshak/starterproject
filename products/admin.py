@@ -206,10 +206,10 @@ class WarrantyAdmin(ModelAdmin):
 
 
 # ---------- SellingPriceGroup ADMIN ----------
-@admin.register(SellingPriceGroup)
-class SellingPriceGroupAdmin(ModelAdmin):
-    list_display = ['name', 'price_multiplier']
-    search_fields = ['name']
+# @admin.register(SellingPriceGroup)
+# class SellingPriceGroupAdmin(ModelAdmin):
+#     list_display = ['name', 'price_multiplier']
+#     search_fields = ['name']
 
 # @admin.register(BranchProductStock)
 # class BranchProductStockAdmin(ModelAdmin):
@@ -304,6 +304,8 @@ class BranchProductStockAdminForm(forms.ModelForm):
 class BranchProductStockAdmin(ModelAdmin):
     form = BranchProductStockAdminForm
     list_display = ["product_name", "product_variation", "stock_branch", "quantity"]
+    search_fields = ["id",]
+
     filter_horizontal = ("unickkey",)
 
     class Media:

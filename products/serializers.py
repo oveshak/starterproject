@@ -199,6 +199,20 @@ class ProductSerializer(GlobalSerializers):
         model = Product
         fields ="__all__"
 
+class VariationAttributeSerializer(GlobalSerializers):
+    
+
+    class Meta:
+        model = VariationAttribute
+        fields ="__all__"
+
+class VariationAttributeValueSerializer(GlobalSerializers):
+    
+
+    class Meta:
+        model = VariationAttributeValue
+        fields ="__all__"
+
 
 
 class SellingPriceGroupSerializer(GlobalSerializers):
@@ -279,6 +293,56 @@ class BranchProductStockAdminForm(forms.ModelForm):
             self.fields["unickkey"].queryset = (
                 unick.objects.filter(variation__id=variation)  #  যদি reverse relation না থাকে
             )
+# class BranchProductStockSerializer(GlobalSerializers):
+#     product_variation = serializers.PrimaryKeyRelatedField(
+#         queryset=Variation.objects.all()
+#     )
+#     stock_branch = serializers.PrimaryKeyRelatedField(
+#         queryset=Branch.objects.all()
+#     )
+#     unickkey = serializers.PrimaryKeyRelatedField(
+#         queryset=unick.objects.all(),
+#         many=True,
+#         required=False
+#     )
+
+#     variation_price = serializers.SerializerMethodField()
+
+#     class Meta:
+#         model = BranchProductStock
+#         fields = "__all__"
+
+#     def get_variation_price(self, obj):
+#         #  Decimal → float (JSON safe)
+#         return float(obj.product_variation.price)
+
+#     def validate(self, attrs):
+#         variation = attrs.get(
+#             "product_variation",
+#             getattr(self.instance, "product_variation", None)
+#         )
+#         qty = attrs.get(
+#             "quantity",
+#             getattr(self.instance, "quantity", 0)
+#         )
+#         unicks = attrs.get("unickkey", None)
+
+#         if variation and variation.isunck:
+#             cnt = len(unicks or [])
+#             if qty != cnt:
+#                 raise serializers.ValidationError({
+#                     "quantity": f"Quantity must equal UnickKey count ({cnt}) for unique variation."
+#                 })
+
+#         return attrs
+
+
+
+from rest_framework import serializers
+from .models import BranchProductStock
+from products.models import unick, Variation
+
+
 class BranchProductStockSerializer(GlobalSerializers):
     product_variation = serializers.PrimaryKeyRelatedField(
         queryset=Variation.objects.all()
@@ -292,15 +356,68 @@ class BranchProductStockSerializer(GlobalSerializers):
         required=False
     )
 
+    product_id = serializers.SerializerMethodField()
+    product_name_display = serializers.SerializerMethodField()
+    variation_id = serializers.SerializerMethodField()
+    variation_name = serializers.SerializerMethodField()
     variation_price = serializers.SerializerMethodField()
+    isunck = serializers.SerializerMethodField()
+    unique_keys = serializers.SerializerMethodField()
+    stock = serializers.SerializerMethodField()
 
     class Meta:
         model = BranchProductStock
-        fields = "__all__"
+        fields = [
+            "id",
+            "product_name",
+            "product_variation",
+            "stock_branch",
+            "quantity",
+            "unickkey",
+            "product_id",
+            "product_name_display",
+            "variation_id",
+            "variation_name",
+            "variation_price",
+            "isunck",
+            "unique_keys",
+            "stock",
+        ]
+
+    def get_product_id(self, obj):
+        return obj.product_name_id
+
+    def get_product_name_display(self, obj):
+        return getattr(obj.product_name, "name", str(obj.product_name))
+
+    def get_variation_id(self, obj):
+        return obj.product_variation_id
+
+    def get_variation_name(self, obj):
+        return (
+            getattr(obj.product_variation, "name", None)
+            or getattr(obj.product_variation, "variation_name", None)
+            or getattr(obj.product_variation, "label", None)
+            or f"Variation #{obj.product_variation_id}"
+        )
 
     def get_variation_price(self, obj):
-        #  Decimal → float (JSON safe)
-        return float(obj.product_variation.price)
+        return float(obj.product_variation.price or 0)
+
+    def get_isunck(self, obj):
+        return bool(getattr(obj.product_variation, "isunck", False))
+
+    def get_stock(self, obj):
+        return obj.quantity
+
+    def get_unique_keys(self, obj):
+        return [
+            {
+                "id": item.id,
+                "key": getattr(item, "key", None) or getattr(item, "name", None) or str(item),
+            }
+            for item in obj.unickkey.all()
+        ]
 
     def validate(self, attrs):
         variation = attrs.get(

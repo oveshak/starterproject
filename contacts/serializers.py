@@ -136,11 +136,66 @@ class CustomerTypeSerializer(GlobalSerializers):
         return data
     
 
+# from rest_framework import serializers
+
+# class CustomerSerializer(GlobalSerializers):
+#     branch_name = serializers.PrimaryKeyRelatedField(
+#         queryset=Branch.objects.all(), required=False, allow_null=True
+#     )
+#     guarantor = serializers.PrimaryKeyRelatedField(
+#         queryset=Contact.objects.all(), required=False, allow_null=True
+#     )
+#     customer_group = serializers.PrimaryKeyRelatedField(
+#         queryset=CustomerGroup.objects.all(), required=False, allow_null=True
+#     )
+
+#     # ✅ dropdown friendly fields (read-only)
+#     label = serializers.CharField(source="full_name", read_only=True)  # label = full_name
+#     name = serializers.CharField(source="full_name", read_only=True)   # name = full_name
+#     value = serializers.IntegerField(source="id", read_only=True)      # value = id (safe standard)
+
+#     class Meta:
+#         model = Customer
+#         fields = "__all__"  # label/name/value automatically included because declared above
+
+#     def to_representation(self, instance):
+#         data = super().to_representation(instance)
+
+#         # nested objects (as you had)
+#         data["branch_name"] = (
+#             BranchSerializer(instance.branch_name).data if instance.branch_name else None
+#         )
+#         data["customer_group"] = (
+#             CustomerGroupSerializer(instance.customer_group).data if instance.customer_group else None
+#         )
+#         data["guarantor"] = (
+#             ContactSerializer(instance.guarantor).data if instance.guarantor else None
+#         )
+
+#         # ✅ ensure label/name/value are always present
+#         data["label"] = instance.full_name
+#         data["name"] = instance.full_name
+#         data["value"] = instance.id
+
+#         return data
+
+#     def create(self, validated_data):
+#         group = validated_data.get("customer_group", None)
+#         customer = Customer.objects.create(**validated_data)
+#         if group:
+#             group.members.add(customer)
+#         return customer
+
+
+
 from rest_framework import serializers
 
 class CustomerSerializer(GlobalSerializers):
     branch_name = serializers.PrimaryKeyRelatedField(
         queryset=Branch.objects.all(), required=False, allow_null=True
+    )
+    area_name = serializers.PrimaryKeyRelatedField(
+        queryset=Area.objects.all(), required=False, allow_null=True
     )
     guarantor = serializers.PrimaryKeyRelatedField(
         queryset=Contact.objects.all(), required=False, allow_null=True
@@ -148,20 +203,25 @@ class CustomerSerializer(GlobalSerializers):
     customer_group = serializers.PrimaryKeyRelatedField(
         queryset=CustomerGroup.objects.all(), required=False, allow_null=True
     )
+    coustomer_type = serializers.PrimaryKeyRelatedField(
+        queryset=CustomerType.objects.all(), required=False, allow_null=True
+    )
+    received_by = serializers.PrimaryKeyRelatedField(
+        queryset=Users.objects.all(), required=False, allow_null=True
+    )
 
-    # ✅ dropdown friendly fields (read-only)
-    label = serializers.CharField(source="full_name", read_only=True)  # label = full_name
-    name = serializers.CharField(source="full_name", read_only=True)   # name = full_name
-    value = serializers.IntegerField(source="id", read_only=True)      # value = id (safe standard)
+    # dropdown friendly fields
+    label = serializers.CharField(source="full_name", read_only=True)
+    name = serializers.CharField(source="full_name", read_only=True)
+    value = serializers.IntegerField(source="id", read_only=True)
 
     class Meta:
         model = Customer
-        fields = "__all__"  # label/name/value automatically included because declared above
+        fields = "__all__"
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        # nested objects (as you had)
         data["branch_name"] = (
             BranchSerializer(instance.branch_name).data if instance.branch_name else None
         )
@@ -171,8 +231,14 @@ class CustomerSerializer(GlobalSerializers):
         data["guarantor"] = (
             ContactSerializer(instance.guarantor).data if instance.guarantor else None
         )
+        data["area_name"] = (
+            AreaSerializer(instance.area_name).data if instance.area_name else None
+        )
+        data["coustomer_type"] = (
+            CustomerTypeSerializer(instance.coustomer_type).data if instance.coustomer_type else None
+        )
+        
 
-        # ✅ ensure label/name/value are always present
         data["label"] = instance.full_name
         data["name"] = instance.full_name
         data["value"] = instance.id
@@ -182,6 +248,41 @@ class CustomerSerializer(GlobalSerializers):
     def create(self, validated_data):
         group = validated_data.get("customer_group", None)
         customer = Customer.objects.create(**validated_data)
+
         if group:
             group.members.add(customer)
+
         return customer
+
+    def update(self, instance, validated_data):
+        old_group = instance.customer_group
+        new_group = validated_data.get("customer_group", instance.customer_group)
+
+        instance.full_name = validated_data.get("full_name", instance.full_name)
+        instance.father_husband_name = validated_data.get("father_husband_name", instance.father_husband_name)
+        instance.mobile_number = validated_data.get("mobile_number", instance.mobile_number)
+        instance.secondary_mobile_number = validated_data.get("secondary_mobile_number", instance.secondary_mobile_number)
+        instance.guarantor = validated_data.get("guarantor", instance.guarantor)
+        instance.nid_front = validated_data.get("nid_front", instance.nid_front)
+        instance.nid_back = validated_data.get("nid_back", instance.nid_back)
+        instance.nid_number = validated_data.get("nid_number", instance.nid_number)
+        instance.photo = validated_data.get("photo", instance.photo)
+        instance.house_photo = validated_data.get("house_photo", instance.house_photo)
+        instance.utility_bill = validated_data.get("utility_bill", instance.utility_bill)
+        instance.house_remark_bn = validated_data.get("house_remark_bn", instance.house_remark_bn)
+        instance.branch_name = validated_data.get("branch_name", instance.branch_name)
+        instance.area_name = validated_data.get("area_name", instance.area_name)
+        instance.location_url = validated_data.get("location_url", instance.location_url)
+        instance.customer_group = new_group
+        instance.coustomer_type = validated_data.get("coustomer_type", instance.coustomer_type)
+        instance.received_by = validated_data.get("received_by", instance.received_by)
+
+        instance.save()
+
+        if old_group and old_group != new_group:
+            old_group.members.remove(instance)
+
+        if new_group:
+            new_group.members.add(instance)
+
+        return instance

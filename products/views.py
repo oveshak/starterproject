@@ -3,9 +3,9 @@ from django.shortcuts import render
 # Create your views here.
 from rest_framework import permissions, authentication
 from globalapp.views import BaseViews
-from .models import Product, Unit, Category, Brand, Warranty, SellingPriceGroup, Variation, BranchProductStock, unick
+from .models import Product, Unit, Category, Brand, VariationAttribute, VariationAttributeValue, Warranty, SellingPriceGroup, Variation, BranchProductStock, unick
 from .serializers import (
-    ProductSerializer, UnickSerializer, UnitSerializer, CategorySerializer, BrandSerializer,
+    ProductSerializer, UnickSerializer, UnitSerializer, CategorySerializer, BrandSerializer, VariationAttributeSerializer, VariationAttributeValueSerializer,
     WarrantySerializer, SellingPriceGroupSerializer, VariationSerializer,
     BranchProductStockSerializer
 )
@@ -94,6 +94,29 @@ class VariationViewSet(BaseViews):
     model_name = Variation
     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
     
+
+
+class VariationAttributeViewSet(BaseViews):
+    queryset = VariationAttribute.objects.all()
+    serializer_class =VariationAttributeSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    model_name = VariationAttribute
+    methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+
+
+class VariationAttributeValueViewSet(BaseViews):
+    queryset = VariationAttributeValue.objects.all()
+    serializer_class =VariationAttributeValueSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    model_name = VariationAttributeValue
+    methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+
+
+
+
+
 class BranchProductStockViewSet(BaseViews):
     queryset = BranchProductStock.objects.all()
     serializer_class = BranchProductStockSerializer

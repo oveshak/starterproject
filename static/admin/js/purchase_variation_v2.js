@@ -68,46 +68,77 @@
 
 
 
+// console.log("Purchase Variation JS Loaded");
+
+// document.addEventListener("change", function (e) {
+
+//     if (e.target.name.includes("purchase_product")) {
+
+//         const productField = e.target;
+
+//         const row = productField.closest("tr");
+
+//         if (!row) return;
+
+//         const variationField = row.querySelector(
+//             "select[name$='purchase_product_variation']"
+//         );
+
+//         if (!variationField) return;
+
+//         const productId = productField.value;
+
+//         variationField.innerHTML = '<option value="">---------</option>';
+
+//         if (!productId) return;
+
+//         fetch(`/admin/variations/?product=${productId}`)
+//             .then(res => res.json())
+//             .then(data => {
+
+//                 data.forEach(v => {
+
+//                     const option = document.createElement("option");
+
+//                     option.value = v.id;
+//                     option.textContent = v.name + (v.isunck ? " (Unique)" : "");
+
+//                     variationField.appendChild(option);
+//                 });
+
+//             })
+//             .catch(err => console.error(err));
+//     }
+
+// });
+
+
+
 console.log("Purchase Variation JS Loaded");
 
-document.addEventListener("change", function (e) {
+document.addEventListener("DOMContentLoaded", function () {
+    const productField = document.querySelector("#id_purchase_product");
+    const variationField = document.querySelector("#id_purchase_product_variation");
 
-    if (e.target.name.includes("purchase_product")) {
+    if (!productField || !variationField) return;
 
-        const productField = e.target;
-
-        const row = productField.closest("tr");
-
-        if (!row) return;
-
-        const variationField = row.querySelector(
-            "select[name$='purchase_product_variation']"
-        );
-
-        if (!variationField) return;
-
-        const productId = productField.value;
+    productField.addEventListener("change", function () {
+        const productId = this.value;
 
         variationField.innerHTML = '<option value="">---------</option>';
 
         if (!productId) return;
 
-        fetch(`/admin/variations/?product=${productId}`)
-            .then(res => res.json())
-            .then(data => {
-
-                data.forEach(v => {
-
+        fetch(`/ajax/admin/variations/?product=${productId}`)
+            .then((res) => res.json())
+            .then((data) => {
+                data.forEach((v) => {
                     const option = document.createElement("option");
-
                     option.value = v.id;
                     option.textContent = v.name + (v.isunck ? " (Unique)" : "");
-
                     variationField.appendChild(option);
                 });
-
             })
-            .catch(err => console.error(err));
-    }
-
+            .catch((err) => console.error("Variation load error:", err));
+    });
 });

@@ -192,27 +192,68 @@ from django.db.models import Sum
 # ------------------ Unit ------------------
 
 class Unit(Common):
-    name = models.CharField(max_length=50)
-
+    name = models.CharField(max_length=50,verbose_name="Unit Name")
+    
+    class Meta:
+        verbose_name = "Unit"
+        verbose_name_plural = "Units"
+        ordering = ["name"]
     def __str__(self):
         return self.name
+    
+
+
+
+
 
 # ------------------ Category ------------------
 
 class Category(Common):
-    name = models.CharField(max_length=100)
+    name = models.CharField(
+        max_length=100,
+        verbose_name="Category Name"
+    )
+
+    class Meta:
+        verbose_name = "Category"
+        verbose_name_plural = "Categories"
+        ordering = ["name"]
 
     def __str__(self):
         return self.name
 # ------------------ Brand ------------------
 
 class Brand(Common):
-    name = models.CharField(max_length=100)
+    name = models.CharField(
+        max_length=100,
+        verbose_name="Brand Name"
+    )
+
+    class Meta:
+        verbose_name = "Brand"
+        verbose_name_plural = "Brands"
+        ordering = ["name"]
 
     def __str__(self):
         return self.name
 
+
+
 # ------------------ Warranty ------------------
+
+# class Warranty(Common):
+#     DURATION_TYPES = (
+#         ('Days', 'Days'),
+#         ('Months', 'Months'),
+#         ('Years', 'Years'),
+#     )
+#     name = models.CharField(max_length=100)
+#     duration = models.IntegerField()
+#     duration_type = models.CharField(max_length=10, choices=DURATION_TYPES)
+
+#     def __str__(self):
+#         return self.name
+    
 
 class Warranty(Common):
     DURATION_TYPES = (
@@ -220,99 +261,363 @@ class Warranty(Common):
         ('Months', 'Months'),
         ('Years', 'Years'),
     )
-    name = models.CharField(max_length=100)
-    duration = models.IntegerField()
-    duration_type = models.CharField(max_length=10, choices=DURATION_TYPES)
+    name = models.CharField(
+        max_length=100,
+        verbose_name="Warranty Name"
+    )
+    duration = models.IntegerField(
+        verbose_name="Duration"
+    )
+    duration_type = models.CharField(
+        max_length=10,
+        choices=DURATION_TYPES,
+        verbose_name="Duration Type"
+    )
+
+    class Meta:
+        verbose_name = "Warranty"
+        verbose_name_plural = "Warranties"
+        ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+
 
 
 # ------------------ PRODUCT ------------------
 
 class Product(Common):
-    name = models.CharField(max_length=200)
-    sku = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=200, verbose_name="Product Name")
+    sku = models.CharField(max_length=50, unique=True, verbose_name="Product SKU")
 
-    unit_name = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
-    category_name = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
-    brand_name = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True)
-    warranty_name = models.ForeignKey(Warranty, on_delete=models.SET_NULL, null=True, blank=True)
+    unit_name = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name="Unit Name"
+    )
+    category_name = models.ForeignKey(
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name="Product Category"
+    )
+    brand_name = models.ForeignKey(
+        Brand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name="Product Brand"
+    )
+    warranty_name = models.ForeignKey(
+        Warranty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='products',
+        verbose_name="Product Warranty"
+    )
+
+    class Meta:
+        verbose_name = "Product"
+        verbose_name_plural = "Products"
+        ordering = ["name"]
 
     def __str__(self):
         return self.name
-
-
 # ------------------ VARIATION ATTRIBUTE ------------------
 
 class VariationAttribute(Common):
-    """
-    Universal attributes:
-    Color, RAM, Storage, Size, IMEI, Batch, Expiry, Fabric etc.
-    """
-    name = models.CharField(max_length=50, unique=True)
-    order = models.PositiveIntegerField(default=0)
+#     """
+#     Universal attributes:
+#     Color, RAM, Storage, Size, IMEI, Batch, Expiry, Fabric etc.
+#     """
+     name = models.CharField(max_length=50, unique=True ,verbose_name="Attribute Name")
+     order = models.PositiveIntegerField(default=0,verbose_name="Display Order")
 
-    class Meta:
+     class Meta:
         ordering = ["order"]
+        verbose_name = "Variation Attribute"
+        verbose_name_plural = "Variation Attributes"
 
-    def __str__(self):
+     def __str__(self):
         return self.name
 
-# ------------------ Unick Key ------------------
+# # ------------------ Unick Key ------------------
 class unick(Common):
-    key1 = models.CharField(max_length=100,unique=True)
-    key2 = models.CharField(max_length=100,unique=True,null=True)
+    key1 = models.CharField(max_length=100,unique=True,verbose_name="IMI-1")
+    key2 = models.CharField(max_length=100,unique=True,null=True,verbose_name="IMI-2")
+    class Meta:
+        verbose_name = "Unique Key"
+        verbose_name_plural = "Unique Keys"
+        ordering = ["id"]
     def __str__(self):
         return f'{self.key1}- {self.key2}'
 
-# ------------------ VARIATION ------------------
+# # ------------------ VARIATION ------------------
 
+
+
+# class Variation(Common):
+#     product_name = models.ForeignKey(
+#         Product,
+#         on_delete=models.CASCADE,
+#         related_name="variations"
+#     )
+
+#     name = models.CharField(max_length=300, blank=True)
+#     sku_suffix = models.CharField(max_length=50, blank=True)
+
+#     price = models.DecimalField(max_digits=15, decimal_places=2)
+#     quantity = models.PositiveIntegerField(default=0)
+#     dealer_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+#     isunck = models.BooleanField(default=False)
+#     unickkey = models.ManyToManyField(unick, blank=True)
+
+#     class Meta:
+#         ordering = ["id"]
+
+#     def __str__(self):
+#         return f"{self.product_name.name} - {self.name}"
 
 
 class Variation(Common):
     product_name = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
-        related_name="variations"
+        related_name="variations",
+        verbose_name="Product Name"
     )
 
-    name = models.CharField(max_length=300, blank=True)
-    sku_suffix = models.CharField(max_length=50, blank=True)
+    name = models.CharField(
+        max_length=300,
+        blank=True,
+        verbose_name="Variation Name"
+    )
+    sku_suffix = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="SKU Suffix"
+    )
 
-    price = models.DecimalField(max_digits=15, decimal_places=2)
-    quantity = models.PositiveIntegerField(default=0)
-    dealer_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    isunck = models.BooleanField(default=False)
-    unickkey = models.ManyToManyField(unick, blank=True)
+    price = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        verbose_name="Sales Price"
+    )
+    quantity = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Quantity"
+    )
+    dealer_price = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+        verbose_name="Dealer Price"
+    )
+    isunck = models.BooleanField(
+        default=False,
+        verbose_name="Has Unique Key"
+    )
+    unickkey = models.ManyToManyField(
+        unick,
+        blank=True,
+        related_name="variations",
+        verbose_name="Unique Keys"
+    )
 
     class Meta:
         ordering = ["id"]
+        verbose_name = "Variation"
+        verbose_name_plural = "Variations"
 
     def __str__(self):
         return f"{self.product_name.name} - {self.name}"
 
-# ------------------ VARIATION ATTRIBUTE VALUE ------------------
+# # ------------------ VARIATION ATTRIBUTE VALUE ------------------
 
+# class VariationAttributeValue(Common):
+#     variation_ref = models.ForeignKey(
+#         Variation,
+#         on_delete=models.CASCADE,
+#         related_name="attribute_values"
+#     )
+#     attribute = models.ForeignKey(
+#         VariationAttribute,
+#         on_delete=models.CASCADE
+#     )
+#     value = models.CharField(max_length=150)
+
+#     class Meta:
+#         # same attribute twice in same variation not allowed
+#         unique_together = ("variation_ref", "attribute")
+
+#     def __str__(self):
+#         return f"{self.attribute.name}: {self.value}"
 class VariationAttributeValue(Common):
     variation_ref = models.ForeignKey(
         Variation,
         on_delete=models.CASCADE,
-        related_name="attribute_values"
+        related_name="attribute_values",
+        verbose_name="Variation"
     )
     attribute = models.ForeignKey(
         VariationAttribute,
-        on_delete=models.CASCADE
+        on_delete=models.CASCADE,
+        related_name="variation_values",
+        verbose_name="Attribute"
     )
-    value = models.CharField(max_length=150)
+    value = models.CharField(
+        max_length=150,
+        verbose_name="Attribute Value"
+    )
 
     class Meta:
-        # same attribute twice in same variation not allowed
         unique_together = ("variation_ref", "attribute")
+        verbose_name = "Variation Attribute Value"
+        verbose_name_plural = "Variation Attribute Values"
+        ordering = ["id"]
 
     def __str__(self):
         return f"{self.attribute.name}: {self.value}"
 
+
+# class VariationAttribute(Common):
+#     """
+#     Universal attributes:
+#     Color, RAM, Storage, Size, IMEI, Batch, Expiry, Fabric etc.
+#     """
+#     name = models.CharField(
+#         max_length=50,
+#         unique=True,
+#         verbose_name="Attribute Name"
+#     )
+#     order = models.PositiveIntegerField(
+#         default=0,
+#         verbose_name="Display Order"
+#     )
+
+#     class Meta:
+#         ordering = ["order"]
+#         verbose_name = "Variation Attribute"
+#         verbose_name_plural = "Variation Attributes"
+
+#     def __str__(self):
+#         return self.name
+
+
+# ------------------ Unique Key ------------------
+# class Unick(Common):
+#     key1 = models.CharField(
+#         max_length=100,
+#         unique=True,
+#         verbose_name="Primary Key"
+#     )
+#     key2 = models.CharField(
+#         max_length=100,
+#         unique=True,
+#         null=True,
+#         blank=True,
+#         verbose_name="Secondary Key"
+#     )
+
+#     class Meta:
+#         verbose_name = "Unique Key"
+#         verbose_name_plural = "Unique Keys"
+#         ordering = ["id"]
+
+#     def __str__(self):
+#         return f"{self.key1} - {self.key2}" if self.key2 else self.key1
+
+
+# ------------------ Variation ------------------
+# class Variation(Common):
+#     product_name = models.ForeignKey(
+#         Product,
+#         on_delete=models.CASCADE,
+#         related_name="variations",
+#         verbose_name="Product Name"
+#     )
+
+#     name = models.CharField(
+#         max_length=300,
+#         blank=True,
+#         verbose_name="Variation Name"
+#     )
+#     sku_suffix = models.CharField(
+#         max_length=50,
+#         blank=True,
+#         verbose_name="SKU Suffix"
+#     )
+
+#     price = models.DecimalField(
+#         max_digits=15,
+#         decimal_places=2,
+#         verbose_name="Sales Price"
+#     )
+#     quantity = models.PositiveIntegerField(
+#         default=0,
+#         verbose_name="Quantity"
+#     )
+#     dealer_price = models.DecimalField(
+#         max_digits=15,
+#         decimal_places=2,
+#         default=0,
+#         verbose_name="Dealer Price"
+#     )
+#     isunck = models.BooleanField(
+#         default=False,
+#         verbose_name="Has Unique Key"
+#     )
+#     unickkey = models.ManyToManyField(
+#         Unick,
+#         blank=True,
+#         related_name="variations",
+#         verbose_name="Unique Keys"
+#     )
+
+#     class Meta:
+#         ordering = ["id"]
+#         verbose_name = "Variation"
+#         verbose_name_plural = "Variations"
+
+#     def __str__(self):
+#         return f"{self.product_name.name} - {self.name}"
+
+
+# ------------------ Variation Attribute Value ------------------
+# class VariationAttributeValue(Common):
+#     variation_ref = models.ForeignKey(
+#         Variation,
+#         on_delete=models.CASCADE,
+#         related_name="attribute_values",
+#         verbose_name="Variation"
+#     )
+#     attribute = models.ForeignKey(
+#         VariationAttribute,
+#         on_delete=models.CASCADE,
+#         related_name="variation_values",
+#         verbose_name="Attribute"
+#     )
+#     value = models.CharField(
+#         max_length=150,
+#         verbose_name="Attribute Value"
+#     )
+
+#     class Meta:
+#         unique_together = ("variation_ref", "attribute")
+#         verbose_name = "Variation Attribute Value"
+#         verbose_name_plural = "Variation Attribute Values"
+#         ordering = ["id"]
+
+#     def __str__(self):
+#         return f"{self.attribute.name}: {self.value}"
 
 # ------------------ SellingPriceGroup VALUE ------------------
 
@@ -562,13 +867,40 @@ class SellingPriceGroup(Common):
 # ------------------ BranchProductStock VALUE ------------------
 
 class BranchProductStock(Common):
-    product_name = models.ForeignKey(Product, on_delete=models.CASCADE)
-    product_variation = models.ForeignKey(
-        Variation, on_delete=models.CASCADE, related_name="branch_stocks"
+    product_name = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="branch_product_stocks",
+        verbose_name="Product Name"
     )
-    stock_branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
-    quantity = models.PositiveIntegerField(default=0)
-    unickkey = models.ManyToManyField("products.unick", blank=True)
+    product_variation = models.ForeignKey(
+        Variation,
+        on_delete=models.CASCADE,
+        related_name="branch_stocks",
+        verbose_name="Product Variation"
+    )
+    stock_branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name="branch_product_stocks",
+        verbose_name="Stock Branch"
+    )
+    quantity = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Quantity"
+    )
+    unickkey = models.ManyToManyField(
+        "products.unick",
+        blank=True,
+        related_name="branch_product_stocks",
+        verbose_name="Unique Keys"
+    )
+
+    class Meta:
+        unique_together = ("product_variation", "stock_branch")
+        verbose_name = "Branch Product Stock"
+        verbose_name_plural = "Branch Product Stocks"
+        ordering = ["id"]
 
     class Meta:
         unique_together = ("product_variation", "stock_branch")

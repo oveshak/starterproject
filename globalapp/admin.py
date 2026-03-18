@@ -120,7 +120,7 @@ from globalapp.models import SoftwareAsset
 from solo.admin import SingletonModelAdmin
 
 # Register models
-admin.site.register(SoftwareAsset, SingletonModelAdmin)
+# admin.site.register(SoftwareAsset, SingletonModelAdmin)
 
 def activity_log_view(request):
     historical_models = [

@@ -26,6 +26,7 @@ router.register(
 
 urlpatterns = [
 
-    path("_admin/variations/", views.AdminVariationByProductView.as_view()),
+    # path("_admin/variations/", views.AdminVariationByProductView.as_view()),
+    path("ajax/admin/variations/", views.AdminVariationByProductView.as_view(), name="admin_variations_by_product"),
     path('', include(router.urls)),
 ]
