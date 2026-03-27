@@ -113,7 +113,7 @@ class VariationInline(admin.TabularInline):
     fk_name = "product_name"
     extra = 1
     show_change_link = True
-    fields = ("sku_suffix", "price", "dealer_price_display", "quantity")
+    fields = ("id", "sku_suffix", "price", "dealer_price_display", "quantity")
     readonly_fields = ("dealer_price_display",)
 
     def dealer_price_display(self, obj):
@@ -126,8 +126,8 @@ class VariationInline(admin.TabularInline):
 
 @admin.register(Product)
 class ProductAdmin(ModelAdmin):
-    list_display = ["name", "sku", "brand_name", "category_name"]
-    search_fields = ["name", "sku"]
+    list_display = [ "id", "name", "sku", "brand_name", "category_name"]
+    search_fields = ["id","name", "sku"]
     inlines = [VariationInline]
 
     
@@ -136,8 +136,8 @@ class ProductAdmin(ModelAdmin):
 
 @admin.register(unick)
 class UnickAdmin(ModelAdmin):
-    list_display = ("key1", "key2")
-    search_fields = ("key1", "key2")
+    list_display = ("id", "key1", "key2")
+    search_fields = (  "id", "key1", "key2")
 
 
 # ---------- VariationAdminForm ADMIN ----------
@@ -172,7 +172,7 @@ class VariationAdminForm(ModelForm):
 @admin.register(Variation)
 class VariationAdmin(ModelAdmin):
     form = VariationAdminForm
-    list_display = ("product_name", "name", "quantity", "isunck")
+    list_display = ("id", "product_name", "name", "quantity", "isunck")
     filter_horizontal = ("unickkey",)
     inlines = [VariationAttributeValueInline]
 
@@ -182,27 +182,27 @@ class VariationAdmin(ModelAdmin):
 
 @admin.register(VariationAttribute)
 class VariationAttributeAdmin(ModelAdmin):
-    list_display = ["name", "order"]
+    list_display = [ 'id',   "name", "order"]
 
 # ---------- Unit ADMIN ----------
 @admin.register(Unit)
 class UnitAdmin(ModelAdmin):
-    list_display = ["name"]
+    list_display = [ 'id',   "name"]
 
 # ---------- Category ADMIN ----------
 @admin.register(Category)
 class CategoryAdmin(ModelAdmin):
-    list_display = ["name"]
+    list_display = ['id',"name"]
 
 # ---------- Brand ADMIN ----------
 @admin.register(Brand)
 class BrandAdmin(ModelAdmin):
-    list_display = ["name"]
+    list_display = ['id',"name"]
 
 # ---------- Warrenty ADMIN ----------
 @admin.register(Warranty)
 class WarrantyAdmin(ModelAdmin):
-    list_display = ["name", "duration", "duration_type"]
+    list_display = ['id',"name", "duration", "duration_type"]
 
 
 # ---------- SellingPriceGroup ADMIN ----------
@@ -303,7 +303,7 @@ class BranchProductStockAdminForm(forms.ModelForm):
 @admin.register(BranchProductStock)
 class BranchProductStockAdmin(ModelAdmin):
     form = BranchProductStockAdminForm
-    list_display = ["product_name", "product_variation", "stock_branch", "quantity"]
+    list_display = ["id","product_name", "product_variation", "stock_branch", "quantity"]
     search_fields = ["id",]
 
     filter_horizontal = ("unickkey",)

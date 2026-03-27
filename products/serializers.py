@@ -192,12 +192,22 @@ class VariationSerializer(GlobalSerializers):
 
 # -------- PRODUCT --------
 
+from rest_framework import serializers
+
 class ProductSerializer(GlobalSerializers):
-    variations = VariationSerializer(many=True, read_only=True)
+    variations = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
-        fields ="__all__"
+        fields = "__all__"
+
+    def get_variations(self, obj):
+        return VariationSerializer(
+            obj.variations.filter(is_deleted=False),
+            many=True
+        ).data
+
+
 
 class VariationAttributeSerializer(GlobalSerializers):
     

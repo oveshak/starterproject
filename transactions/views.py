@@ -31,14 +31,77 @@ from .models import Variation
 
 
 
+# class PurchaseViewSet(BaseViews):
+#     queryset = Purchase.objects.all()
+#     serializer_class = PurchaseSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [permissions.IsAuthenticated]
+#     model_name = Purchase
+#     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+
+
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
 class PurchaseViewSet(BaseViews):
     queryset = Purchase.objects.all()
     serializer_class = PurchaseSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     model_name = Purchase
-    methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+    methods = [
+        "list", "retrieve", "create", "update", "partial_update",
+        "destroy", "soft_delete", "change_status", "restore_soft_deleted"
+    ]
 
+    # def _normalize_request_data(self, request):
+    #     data = request.data.copy()
+
+    #     if hasattr(request.data, "getlist"):
+    #         raw_items = request.data.getlist("purchaseitem")
+    #         raw_items_bracket = request.data.getlist("purchaseitem[]")
+    #         final_items = raw_items if raw_items else raw_items_bracket
+
+    #         if final_items:
+    #             cleaned = [
+    #                 x for x in final_items
+    #                 if str(x).strip() not in ("", "null", "undefined")
+    #             ]
+    #             data.setlist("purchaseitem", cleaned)
+    #         elif "purchaseitem" in request.data or "purchaseitem[]" in request.data:
+    #             data.setlist("purchaseitem", [])
+
+    #     return data
+
+    # def create(self, request, *args, **kwargs):
+    #     data = self._normalize_request_data(request)
+    #     serializer = self.get_serializer(data=data)
+    #     serializer.is_valid(raise_exception=True)
+    #     self.perform_create(serializer)
+    #     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # def update(self, request, *args, **kwargs):
+    #     partial = kwargs.pop("partial", False)
+    #     instance = self.get_object()
+    #     data = self._normalize_request_data(request)
+
+    #     serializer = self.get_serializer(instance, data=data, partial=partial)
+    #     serializer.is_valid(raise_exception=True)
+    #     self.perform_update(serializer)
+    #     return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # def partial_update(self, request, *args, **kwargs):
+    #     kwargs["partial"] = True
+    #     return self.update(request, *args, **kwargs)
+
+# class PurchaseItemViewSet(BaseViews):
+#     queryset = PurchaseItem.objects.all()
+#     serializer_class = PurchaseItemSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [permissions.IsAuthenticated]
+#     model_name = PurchaseItem
+#     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
 
 
 class PurchaseItemViewSet(BaseViews):
@@ -47,7 +110,50 @@ class PurchaseItemViewSet(BaseViews):
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     model_name = PurchaseItem
-    methods = ["list", "retrieve", "create", "update", "partial_update", "destroy", "soft_delete", "change_status", "restore_soft_deleted"]
+    methods = [
+        "list", "retrieve", "create", "update", "partial_update",
+        "destroy", "soft_delete", "change_status", "restore_soft_deleted"
+    ]
+
+    # def _normalize_request_data(self, request):
+    #     data = request.data.copy()
+
+    #     if hasattr(request.data, "getlist"):
+    #         raw_keys = request.data.getlist("unickkey")
+    #         raw_keys_bracket = request.data.getlist("unickkey[]")
+    #         final_keys = raw_keys if raw_keys else raw_keys_bracket
+
+    #         if final_keys:
+    #             cleaned = [
+    #                 x for x in final_keys
+    #                 if str(x).strip() not in ("", "null", "undefined")
+    #             ]
+    #             data.setlist("unickkey", cleaned)
+    #         elif "unickkey" in request.data or "unickkey[]" in request.data:
+    #             data.setlist("unickkey", [])
+
+    #     return data
+
+    # def create(self, request, *args, **kwargs):
+    #     data = self._normalize_request_data(request)
+    #     serializer = self.get_serializer(data=data)
+    #     serializer.is_valid(raise_exception=True)
+    #     self.perform_create(serializer)
+    #     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # def update(self, request, *args, **kwargs):
+    #     partial = kwargs.pop("partial", False)
+    #     instance = self.get_object()
+    #     data = self._normalize_request_data(request)
+
+    #     serializer = self.get_serializer(instance, data=data, partial=partial)
+    #     serializer.is_valid(raise_exception=True)
+    #     self.perform_update(serializer)
+    #     return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # def partial_update(self, request, *args, **kwargs):
+    #     kwargs["partial"] = True
+    #     return self.update(request, *args, **kwargs)
 
 class PurchaseReturnViewSet(BaseViews):
     queryset = PurchaseReturn.objects.all()
@@ -775,6 +881,526 @@ def build_pdf_summary_rows(
     return list(rows.values())
 
 
+# class TransectionViewSet(BaseViews):
+#     queryset = Transection.objects.all()
+#     serializer_class = TransectionSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [permissions.IsAuthenticated]
+#     model_name = Transection
+#     methods = ["list", "retrieve", "create", "update", "partial_update", "destroy"]
+
+#     @action(detail=False, methods=["get"], url_path="summary")
+#     def summary(self, request):
+#         queryset = self.get_queryset()
+#         installment_queryset = Installment.objects.all()
+
+#         # =========================
+#         # GET PARAMS
+#         # =========================
+#         branch = request.GET.get("branch")
+#         area = request.GET.get("area")
+#         customer_group = request.GET.get("customer_group")
+#         from_date = request.GET.get("from_date")
+#         to_date = request.GET.get("to_date")
+#         today = request.GET.get("today")
+
+#         # =========================
+#         # PARSE DATE
+#         # =========================
+#         parsed_from_date = None
+#         parsed_to_date = None
+
+#         try:
+#             if from_date:
+#                 parsed_from_date = datetime.strptime(from_date, "%Y-%m-%d").date()
+#             if to_date:
+#                 parsed_to_date = datetime.strptime(to_date, "%Y-%m-%d").date()
+#         except ValueError:
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "status": 400,
+#                     "message": "Invalid date format. Use YYYY-MM-DD",
+#                     "error": "Invalid date format",
+#                     "data": None,
+#                 },
+#                 status=400,
+#             )
+
+#         today_date = timezone.localdate()
+
+#         # =========================
+#         # TRANSECTION FILTERS
+#         # =========================
+#         if branch:
+#             queryset = queryset.filter(branch_name_id=branch)
+
+#         if area:
+#             queryset = queryset.filter(area_name_id=area)
+
+#         if customer_group:
+#             queryset = queryset.filter(customer_group_id=customer_group)
+
+#         if today == "1":
+#             queryset = queryset.filter(created_at__date=today_date)
+#         else:
+#             if parsed_from_date:
+#                 queryset = queryset.filter(created_at__date__gte=parsed_from_date)
+#             if parsed_to_date:
+#                 queryset = queryset.filter(created_at__date__lte=parsed_to_date)
+
+#         # =========================
+#         # INSTALLMENT FILTERS
+#         # =========================
+#         if branch:
+#             installment_queryset = installment_queryset.filter(branch_name_id=branch)
+
+#         if area:
+#             installment_queryset = installment_queryset.filter(area_name_id=area)
+
+#         if customer_group:
+#             installment_queryset = installment_queryset.filter(customergroup_name_id=customer_group)
+
+#         if today == "1":
+#             installment_queryset = installment_queryset.filter(installment_date=today_date)
+#         else:
+#             if parsed_from_date:
+#                 installment_queryset = installment_queryset.filter(installment_date__gte=parsed_from_date)
+#             if parsed_to_date:
+#                 installment_queryset = installment_queryset.filter(installment_date__lte=parsed_to_date)
+
+#         # =========================
+#         # 1. OVERALL TRANSECTION
+#         # =========================
+#         overall = queryset.aggregate(
+#             total_amount_sum=Coalesce(
+#                 Sum("amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_paid_amount_sum=Coalesce(
+#                 Sum("paid_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_due_amount_sum=Coalesce(
+#                 Sum("due_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#         )
+
+#         # =========================
+#         # 2. MODEL NAME WISE
+#         # =========================
+#         model_bucket = defaultdict(
+#             lambda: {
+#                 "total_amount_sum": Decimal("0.00"),
+#                 "total_paid_amount_sum": Decimal("0.00"),
+#                 "total_due_amount_sum": Decimal("0.00"),
+#             }
+#         )
+
+#         for row in queryset.values("modelname", "amount", "paid_amount", "due_amount"):
+#             base_name = normalize_modelname(row["modelname"])
+
+#             model_bucket[base_name]["total_amount_sum"] += row["amount"] or Decimal("0.00")
+#             model_bucket[base_name]["total_paid_amount_sum"] += row["paid_amount"] or Decimal("0.00")
+#             model_bucket[base_name]["total_due_amount_sum"] += row["due_amount"] or Decimal("0.00")
+
+#         modelname_wise = [
+#             {
+#                 "modelname": name,
+#                 "total_amount_sum": data["total_amount_sum"],
+#                 "total_paid_amount_sum": data["total_paid_amount_sum"],
+#                 "total_due_amount_sum": data["total_due_amount_sum"],
+#             }
+#             for name, data in model_bucket.items()
+#         ]
+
+#         # =========================
+#         # 3. RECEIVED BY WISE
+#         # =========================
+#         received_by_wise = list(
+#             queryset.values("received_by_id", "received_by__name")
+#             .annotate(
+#                 total_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_paid_amount_sum=Coalesce(
+#                     Sum("paid_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_due_amount_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("received_by__name")
+#         )
+
+#         # =========================
+#         # 4. INSTALLMENT OVERALL
+#         # =========================
+#         installment_overall = installment_queryset.aggregate(
+#             total_amount_sum=Coalesce(
+#                 Sum("amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_installment_pay_sum=Coalesce(
+#                 Sum("installment_pay"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_due_amount_sum=Coalesce(
+#                 Sum("due_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#         )
+
+#         # =========================
+#         # 5. INSTALLMENT AREA WISE
+#         # =========================
+#         installment_area_wise = list(
+#             installment_queryset.values("area_name_id", "area_name__name")
+#             .annotate(
+#                 total_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_installment_pay_sum=Coalesce(
+#                     Sum("installment_pay"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_due_amount_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("area_name__name")
+#         )
+
+#         # =========================
+#         # 6. INSTALLMENT CUSTOMER GROUP WISE
+#         # =========================
+#         installment_customer_group_wise = list(
+#             installment_queryset.values("customergroup_name_id", "customergroup_name__name")
+#             .annotate(
+#                 total_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_installment_pay_sum=Coalesce(
+#                     Sum("installment_pay"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_due_amount_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("customergroup_name__name")
+#         )
+
+#         # =========================
+#         # 7. INSTALLMENT RECEIVED BY WISE
+#         # =========================
+#         installment_received_by_wise = list(
+#             installment_queryset.values("received_by_id", "received_by__name")
+#             .annotate(
+#                 total_amount_sum=Coalesce(
+#                     Sum("amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_installment_pay_sum=Coalesce(
+#                     Sum("installment_pay"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#                 total_due_amount_sum=Coalesce(
+#                     Sum("due_amount"),
+#                     Decimal("0.00"),
+#                     output_field=DecimalField(max_digits=18, decimal_places=2),
+#                 ),
+#             )
+#             .order_by("received_by__name")
+#         )
+
+#         # =========================
+#         # 8. TODAY INSTALLMENT SUMMARY
+#         # =========================
+#         today_installment_summary = Installment.objects.all()
+
+#         if branch:
+#             today_installment_summary = today_installment_summary.filter(branch_name_id=branch)
+
+#         if area:
+#             today_installment_summary = today_installment_summary.filter(area_name_id=area)
+
+#         if customer_group:
+#             today_installment_summary = today_installment_summary.filter(customergroup_name_id=customer_group)
+
+#         today_installment_summary = today_installment_summary.filter(installment_date=today_date).aggregate(
+#             total_amount_sum=Coalesce(
+#                 Sum("amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_installment_pay_sum=Coalesce(
+#                 Sum("installment_pay"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#             total_due_amount_sum=Coalesce(
+#                 Sum("due_amount"),
+#                 Decimal("0.00"),
+#                 output_field=DecimalField(max_digits=18, decimal_places=2),
+#             ),
+#         )
+
+#         # =========================
+#         # 9. PDF SUMMARY AREA WISE
+#         # =========================
+#         area_wise_pdf_summary = build_pdf_summary_rows(
+#             tran_qs=queryset,
+#             installment_qs=installment_queryset,
+#             tran_group_id_field="area_name_id",
+#             tran_group_name_field="area_name__name",
+#             ins_group_id_field="area_name_id",
+#             ins_group_name_field="area_name__name",
+#             label_key="area_name",
+#         )
+
+#         # =========================
+#         # 10. PDF SUMMARY CUSTOMER GROUP WISE
+#         # =========================
+#         customer_group_wise_pdf_summary = build_pdf_summary_rows(
+#             tran_qs=queryset,
+#             installment_qs=installment_queryset,
+#             tran_group_id_field="customer_group_id",
+#             tran_group_name_field="customer_group__name",
+#             ins_group_id_field="customergroup_name_id",
+#             ins_group_name_field="customergroup_name__name",
+#             label_key="customer_group",
+
+#         )
+
+#         # =========================
+#         # 11. PDF SUMMARY BRANCH WISE
+#         # =========================
+#         branch_wise_pdf_summary = build_pdf_summary_rows(
+#             tran_qs=queryset,
+#             installment_qs=installment_queryset,
+#             tran_group_id_field="branch_name_id",
+#             tran_group_name_field="branch_name__name",
+#             ins_group_id_field="branch_name_id",
+#             ins_group_name_field="branch_name__name",
+#             label_key="branch_name",
+#         )
+
+#         return Response(
+#             {
+#                 "success": True,
+#                 "status": 200,
+#                 "message": "Transection and installment summary retrieved successfully",
+#                 "error": None,
+#                 "data": {
+#                     "overall": overall,
+#                     "modelname_wise": modelname_wise,
+#                     "received_by_wise": received_by_wise,
+#                     "installment_summary": {
+#                         "overall": installment_overall,
+#                         "area_wise": installment_area_wise,
+#                         "customer_group_wise": installment_customer_group_wise,
+#                         "received_by_wise": installment_received_by_wise,
+#                         "today_summary": today_installment_summary,
+#                     },
+#                     "pdf_summary": {
+#                         "area_wise": area_wise_pdf_summary,
+#                         "customer_group_wise": customer_group_wise_pdf_summary,
+#                         "branch_wise": branch_wise_pdf_summary,
+#                     },
+#                 },
+#             }
+#         )
+
+
+
+from collections import defaultdict
+from datetime import datetime
+from decimal import Decimal
+
+from django.db.models import Sum, DecimalField
+from django.db.models.functions import Coalesce
+from django.utils import timezone
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import permissions
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+
+def normalize_modelname(modelname):
+    if not modelname:
+        return "Unknown"
+
+    modelname = str(modelname).strip()
+
+    if "|" in modelname:
+        parts = [p.strip() for p in modelname.split("|")]
+        if len(parts) >= 2:
+            left = parts[0]
+            right = parts[1]
+
+            if left.startswith("Loan Behavior"):
+                return "Loan Behavior"
+            if left.startswith("Loan Disbursement"):
+                return "Loan Disbursement"
+            if left.startswith("Loan Down Payment"):
+                return "Loan Down Payment | Loan"
+            if left.startswith("Customer Type Behavior"):
+                return "Customer Type Behavior"
+            if left.startswith("Daily Saving"):
+                return "Daily Saving"
+
+            return left
+
+    return modelname
+
+
+def build_pdf_summary_rows(
+    tran_qs,
+    installment_qs,
+    tran_group_id_field,
+    tran_group_name_field,
+    ins_group_id_field,
+    ins_group_name_field,
+    label_key,
+):
+    rows = {}
+
+    # =========================
+    # 1. TRANSECTION SIDE
+    # =========================
+    tran_values = (
+        tran_qs.values(
+            tran_group_id_field,
+            tran_group_name_field,
+            "modelname",
+        )
+        .annotate(
+            total_amount_sum=Coalesce(
+                Sum("amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=18, decimal_places=2),
+            )
+        )
+        .order_by(tran_group_name_field)
+    )
+
+    for row in tran_values:
+        group_id = row.get(tran_group_id_field)
+        group_name = row.get(tran_group_name_field) or "Unknown"
+        modelname = normalize_modelname(row.get("modelname"))
+        amount = row.get("total_amount_sum") or Decimal("0.00")
+
+        if group_id not in rows:
+            rows[group_id] = {
+                f"{label_key}_id": group_id,
+                label_key: group_name,
+                "Customer Type Behavior": Decimal("0.00"),
+                "Daily Saving": Decimal("0.00"),
+                "Loan Behavior": Decimal("0.00"),
+                "Loan Disbursement": Decimal("0.00"),
+                "Loan Down Payment | Loan": Decimal("0.00"),
+                "total_amount_sum": Decimal("0.00"),  # transection total
+                "installment_total_amount_sum": Decimal("0.00"),
+                "total_installment_pay_sum": Decimal("0.00"),
+                "installment_total_due_amount_sum": Decimal("0.00"),
+            }
+
+        if modelname not in rows[group_id]:
+            rows[group_id][modelname] = Decimal("0.00")
+
+        # rows[group_id][modelname] += amount
+        # rows[group_id]["total_amount_sum"] += amount
+        rows[group_id][modelname] += amount
+
+        if modelname != "Loan Disbursement":
+            rows[group_id]["total_amount_sum"] += amount
+
+    # =========================
+    # 2. INSTALLMENT SIDE
+    # =========================
+    installment_values = (
+        installment_qs.values(
+            ins_group_id_field,
+            ins_group_name_field,
+        )
+        .annotate(
+            installment_total_amount_sum=Coalesce(
+                Sum("amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=18, decimal_places=2),
+            ),
+            total_installment_pay_sum=Coalesce(
+                Sum("installment_pay"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=18, decimal_places=2),
+            ),
+            installment_total_due_amount_sum=Coalesce(
+                Sum("due_amount"),
+                Decimal("0.00"),
+                output_field=DecimalField(max_digits=18, decimal_places=2),
+            ),
+        )
+        .order_by(ins_group_name_field)
+    )
+
+    for row in installment_values:
+        group_id = row.get(ins_group_id_field)
+        group_name = row.get(ins_group_name_field) or "Unknown"
+
+        if group_id not in rows:
+            rows[group_id] = {
+                f"{label_key}_id": group_id,
+                label_key: group_name,
+                "Customer Type Behavior": Decimal("0.00"),
+                "Daily Saving": Decimal("0.00"),
+                "Loan Behavior": Decimal("0.00"),
+                "Loan Disbursement": Decimal("0.00"),
+                "Loan Down Payment | Loan": Decimal("0.00"),
+                "total_amount_sum": Decimal("0.00"),  # transection total
+                "installment_total_amount_sum": Decimal("0.00"),
+                "total_installment_pay_sum": Decimal("0.00"),
+                "installment_total_due_amount_sum": Decimal("0.00"),
+            }
+
+        rows[group_id]["installment_total_amount_sum"] += (
+            row.get("installment_total_amount_sum") or Decimal("0.00")
+        )
+        rows[group_id]["total_installment_pay_sum"] += (
+            row.get("total_installment_pay_sum") or Decimal("0.00")
+        )
+        rows[group_id]["installment_total_due_amount_sum"] += (
+            row.get("installment_total_due_amount_sum") or Decimal("0.00")
+        )
+
+    return list(rows.values())
+
+
 class TransectionViewSet(BaseViews):
     queryset = Transection.objects.all()
     serializer_class = TransectionSerializer
@@ -1047,7 +1673,9 @@ class TransectionViewSet(BaseViews):
         if customer_group:
             today_installment_summary = today_installment_summary.filter(customergroup_name_id=customer_group)
 
-        today_installment_summary = today_installment_summary.filter(installment_date=today_date).aggregate(
+        today_installment_summary = today_installment_summary.filter(
+            installment_date=today_date
+        ).aggregate(
             total_amount_sum=Coalesce(
                 Sum("amount"),
                 Decimal("0.00"),
@@ -1129,8 +1757,6 @@ class TransectionViewSet(BaseViews):
                 },
             }
         )
-
-
 
 
 # from decimal import Decimal

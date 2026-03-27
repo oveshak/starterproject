@@ -613,7 +613,7 @@ def create_customer_type_transactions(sender, instance, created, **kwargs):
 
                 print(f"  + {behavior_name} (Fixed): {transaction_type.upper()} {amt:.2f}")
 
-                modelname = f"Customer Type Behavior: {behavior_name}"
+                modelname = f"Customer Type Behavior "
 
                 transaction_data = {
                     "transection_type": transaction_type,
@@ -1636,344 +1636,347 @@ def mark_transaction_as_paid(transaction_obj, amount=None):
 
 
 
-import json
-from decimal import Decimal
-from datetime import date
-
-from django.core.exceptions import ValidationError
-from django.db import transaction
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-from django.utils import timezone
-
-from .models import Loan, Installment, Variation, Transection
-# যদি Transaction অন্য app এ থাকে, তাহলে উপরের import বদলাও
-# example:
-# from transactions.models import Transaction
-
-
-# =========================================================
-# Helpers
-# =========================================================
-
-class InsufficientBalanceError(Exception):
-    pass
-
-
-def q2(value):
-    return Decimal(value).quantize(Decimal("0.01"))
-
-
-def loan_behavior_modelname(loan_id, behavior_name):
-    return f"Loan Behavior | Loan: {loan_id} | Name: {behavior_name}"
-
-
-def loan_down_payment_modelname(loan_id):
-    return f"Loan Down Payment | Loan: {loan_id}"
-
-
-def loan_disbursement_modelname(loan_id):
-    return f"Loan Disbursement | Loan: {loan_id}"
-
-
-def get_existing_transaction(customer, modelname):
-    return Transection.objects.filter(
-        customer_name=customer,
-        modelname=modelname
-    ).first()
-
-
-def create_or_update_transaction(
-    *,
-    customer,
-    transection_type,
-    amount,
-    received_by,
-    modelname,
-    mark_paid=False
-):
-    """
-    Same modelname থাকলে update করবে, না থাকলে create করবে.
-    """
-    tx = get_existing_transaction(customer, modelname)
-
-    if tx:
-        tx.transection_type = transection_type
-        tx.amount = amount
-        tx.customer_name = customer
-        tx.received_by = received_by
-        tx.modelname = modelname
-
-        update_fields = [
-            "transection_type",
-            "amount",
-            "customer_name",
-            "received_by",
-            "modelname",
-        ]
-        if hasattr(tx, "updated_at"):
-            update_fields.append("updated_at")
-
-        tx.save(update_fields=update_fields)
-    else:
-        tx = create_transaction_with_customer_info(
-            customer,
-            transection_type=transection_type,
-            amount=amount,
-            customer_name=customer,
-            received_by=received_by,
-            modelname=modelname
-        )
-
-    if mark_paid:
-        mark_transaction_as_paid(tx, amount)
-
-    return tx
-
-
-def delete_removed_behavior_transactions(instance, valid_modelnames):
-    """
-    Loan behavior list থেকে remove হওয়া old behavior transaction delete করবে.
-    """
-    Transection.objects.filter(
-        customer_name=instance.customer_name,
-        modelname__startswith=f"Loan Behavior | Loan: {instance.id} |"
-    ).exclude(modelname__in=valid_modelnames).delete()
-
-
-# =========================================================
-# Product stock processing
-# =========================================================
-
-def sync_product_stock_on_create_only(instance, created):
-    """
-    Product stock deduction শুধু create এ হবে.
-    Update এ stock auto-adjust করছি না, কারণ old/new diff লাগবে.
-    """
-    if not created:
-        return
-
-    if instance.receive_type != "product":
-        return
-
-    if not instance.product_details:
-        return
-
-    if isinstance(instance.product_details, str):
-        try:
-            rows = json.loads(instance.product_details)
-        except Exception:
-            raise ValidationError("Invalid product_details JSON")
-    else:
-        rows = instance.product_details
-
-    for row in rows:
-        variation_id = row.get("variation_id")
-        qty = int(row.get("quantity", 0))
-        unique_key_id = row.get("unique_key_id")
-
-        if not variation_id or qty <= 0:
-            continue
-
-        try:
-            variation = Variation.objects.get(id=variation_id)
-        except Variation.DoesNotExist:
-            raise ValidationError(f"Variation {variation_id} not found")
-
-        deduct_branch_and_variation_stock(
-            branch=instance.branch_name,
-            variation=variation,
-            qty=qty,
-            unique_key_id=unique_key_id
-        )
-
-
-# =========================================================
-# Transaction sync
-# =========================================================
-
-def sync_loan_transactions(instance):
-    """
-    Loan create/update এ সব related transaction sync করবে.
-    Return করবে installment এর জন্য final total_amount.
-    """
-    original_amount = q2(instance.amount or 0)
-    total_amount = original_amount
-    received_by = getattr(instance, "created_by", None)
-
-    valid_behavior_modelnames = []
-
-    # -------------------------
-    # 1) Loan behavior charges
-    # -------------------------
-    if instance.loan_type and instance.loan_type.behaviour_type:
-        for item in instance.loan_type.behaviour_type:
-            behavior_name = item.get("name", "Unknown")
-            amt = q2(item.get("amount", 0))
-            is_percent = item.get("is_percent", False)
-
-            modelname = loan_behavior_modelname(instance.id, behavior_name)
-            valid_behavior_modelnames.append(modelname)
-
-            if is_percent:
-                added = q2(original_amount * amt / Decimal("100"))
-                total_amount = q2(total_amount + added)
-
-                create_or_update_transaction(
-                    customer=instance.customer_name,
-                    transection_type="cashin",
-                    amount=added,
-                    received_by=received_by,
-                    modelname=modelname,
-                    mark_paid=True
-                )
-            else:
-                total_amount = q2(total_amount + amt)
-
-                create_or_update_transaction(
-                    customer=instance.customer_name,
-                    transection_type="cashin",
-                    amount=amt,
-                    received_by=received_by,
-                    modelname=modelname,
-                    mark_paid=True
-                )
-
-    delete_removed_behavior_transactions(instance, valid_behavior_modelnames)
-
-    # -------------------------
-    # 2) Down payment
-    # -------------------------
-    down_payment = q2(instance.first_down_payment or 0)
-    dp_modelname = loan_down_payment_modelname(instance.id)
-
-    if down_payment > 0:
-        # pay_from_account check/deduct only on create হলে করবা
-        # update এ balance আবার deduct না করাই safer
-        create_or_update_transaction(
-            customer=instance.customer_name,
-            transection_type="cashin",
-            amount=down_payment,
-            received_by=received_by,
-            modelname=dp_modelname,
-            mark_paid=True
-        )
-        total_amount = q2(max(Decimal("0"), total_amount - down_payment))
-    else:
-        Transection.objects.filter(
-            customer_name=instance.customer_name,
-            modelname=dp_modelname
-        ).delete()
-
-    # -------------------------
-    # 3) Main loan disbursement
-    # -------------------------
-    disbursement_modelname = loan_disbursement_modelname(instance.id)
-    create_or_update_transaction(
-        customer=instance.customer_name,
-        transection_type="cashout",
-        amount=original_amount,
-        received_by=received_by,
-        modelname=disbursement_modelname,
-        mark_paid=False
-    )
-
-    return total_amount
-
-
-# =========================================================
-# Installment sync
-# =========================================================
-
-def sync_loan_installments(instance, total_amount):
-    """
-    Duplicate avoid করতে old installments delete করে নতুন করে create করবে.
-    """
-    installment_type = instance.installment_type
-    if (
-        not installment_type
-        or not getattr(installment_type, "instalment_cullect", None)
-        or installment_type.instalment_cullect <= 0
-    ):
-        instance.installment.clear()
-        Installment.objects.filter(loan_id=str(instance.id)).delete()
-        return
-
-    start_date = date.today()
-    dates = generate_installment_dates(start_date, installment_type)
-    if not dates:
-        instance.installment.clear()
-        Installment.objects.filter(loan_id=str(instance.id)).delete()
-        return
-
-    # IMPORTANT:
-    # old installments first clear + delete
-    # এতে duplicate বন্ধ হবে
-    old_installments = Installment.objects.filter(loan_id=str(instance.id))
-    instance.installment.clear()
-    old_installments.delete()
-
-    n = len(dates)
-    per_installment_amount = q2(total_amount / n) if n else Decimal("0")
-    remaining_amount = total_amount
-
-    new_installments = []
-
-    for i, inst_date in enumerate(dates):
-        if i == n - 1:
-            amount = q2(remaining_amount)
-        else:
-            amount = per_installment_amount
-            remaining_amount = q2(remaining_amount - amount)
-
-        if amount <= 0:
-            continue
-
-        inst = Installment.objects.create(
-            customer_name=instance.customer_name,
-            installment_date=inst_date,
-            amount=amount,
-            installment_status="due",
-            area_name=instance.area_name,
-            branch_name=instance.branch_name,
-            loan_id=str(instance.id),
-            pay_from_account=instance.pay_from_account,
-            due_amount=amount
-        )
-        new_installments.append(inst)
-
-    if new_installments:
-        instance.installment.set(new_installments)
-
-
-# =========================================================
-# Main signal
-# =========================================================
-
-@receiver(post_save, sender=Loan, dispatch_uid="loan_create_update_sync_signal")
-def handle_loan_create_or_update(sender, instance, created, **kwargs):
-    """
-    Loan create/update দুই ক্ষেত্রেই run করবে.
-    """
-    try:
-        with transaction.atomic():
-            # Product stock only on create
-            sync_product_stock_on_create_only(instance, created)
-
-            # Transactions create/update
-            total_amount = sync_loan_transactions(instance)
-
-            # Installments recreate
-            sync_loan_installments(instance, total_amount)
-
-            # direct update, no instance.save() here
-            Loan.objects.filter(pk=instance.pk).update(updated_at=timezone.now())
-
-    except InsufficientBalanceError as e:
-        raise ValidationError(str(e))
-    except Exception as e:
-        print(f"Error syncing loan data: {str(e)}")
-        raise
+# import json
+# from decimal import Decimal
+# from datetime import date
+
+# from django.core.exceptions import ValidationError
+# from django.db import transaction
+# from django.db.models.signals import post_save
+# from django.dispatch import receiver
+# from django.utils import timezone
+
+# from .models import Loan, Installment, Variation, Transection
+# # যদি Transaction অন্য app এ থাকে, তাহলে উপরের import বদলাও
+# # example:
+# # from transactions.models import Transaction
+
+
+# # =========================================================
+# # Helpers
+# # =========================================================
+
+# class InsufficientBalanceError(Exception):
+#     pass
+
+
+# def q2(value):
+#     return Decimal(value).quantize(Decimal("0.01"))
+
+
+# def loan_behavior_modelname(loan_id, behavior_name):
+#     return f"Loan Behavior | Loan: {loan_id} | Name: {behavior_name}"
+
+
+# def loan_down_payment_modelname(loan_id):
+#     return f"Loan Down Payment | Loan: {loan_id}"
+
+
+# def loan_disbursement_modelname(loan_id):
+#     return f"Loan Disbursement | Loan: {loan_id}"
+
+
+# def get_existing_transaction(customer, modelname):
+#     return Transection.objects.filter(
+#         customer_name=customer,
+#         modelname=modelname
+#     ).first()
+
+
+# def create_or_update_transaction(
+#     *,
+#     customer,
+#     transection_type,
+#     amount,
+#     received_by,
+#     modelname,
+#     mark_paid=False
+# ):
+#     """
+#     Same modelname থাকলে update করবে, না থাকলে create করবে.
+#     """
+#     tx = get_existing_transaction(customer, modelname)
+
+#     if tx:
+#         tx.transection_type = transection_type
+#         tx.amount = amount
+#         tx.customer_name = customer
+#         tx.received_by = received_by
+#         tx.modelname = modelname
+
+#         update_fields = [
+#             "transection_type",
+#             "amount",
+#             "customer_name",
+#             "received_by",
+#             "modelname",
+#         ]
+#         if hasattr(tx, "updated_at"):
+#             update_fields.append("updated_at")
+
+#         tx.save(update_fields=update_fields)
+#     else:
+#         tx = create_transaction_with_customer_info(
+#             customer,
+#             transection_type=transection_type,
+#             amount=amount,
+#             customer_name=customer,
+#             received_by=received_by,
+#             modelname=modelname
+#         )
+
+#     if mark_paid:
+#         mark_transaction_as_paid(tx, amount)
+
+#     return tx
+
+
+# def delete_removed_behavior_transactions(instance, valid_modelnames):
+#     """
+#     Loan behavior list থেকে remove হওয়া old behavior transaction delete করবে.
+#     """
+#     Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname__startswith=f"Loan Behavior | Loan: {instance.id} |"
+#     ).exclude(modelname__in=valid_modelnames).delete()
+
+
+# # =========================================================
+# # Product stock processing
+# # =========================================================
+
+# def sync_product_stock_on_create_only(instance, created):
+#     """
+#     Product stock deduction শুধু create এ হবে.
+#     Update এ stock auto-adjust করছি না, কারণ old/new diff লাগবে.
+#     """
+#     if not created:
+#         return
+
+#     if instance.receive_type != "product":
+#         return
+
+#     if not instance.product_details:
+#         return
+
+#     if isinstance(instance.product_details, str):
+#         try:
+#             rows = json.loads(instance.product_details)
+#         except Exception:
+#             raise ValidationError("Invalid product_details JSON")
+#     else:
+#         rows = instance.product_details
+
+#     for row in rows:
+#         variation_id = row.get("variation_id")
+#         qty = int(row.get("quantity", 0))
+#         unique_key_id = row.get("unique_key_id")
+
+#         if not variation_id or qty <= 0:
+#             continue
+
+#         try:
+#             variation = Variation.objects.get(id=variation_id)
+#         except Variation.DoesNotExist:
+#             raise ValidationError(f"Variation {variation_id} not found")
+
+#         deduct_branch_and_variation_stock(
+#             branch=instance.branch_name,
+#             variation=variation,
+#             qty=qty,
+#             unique_key_id=unique_key_id
+#         )
+
+
+# # =========================================================
+# # Transaction sync
+# # =========================================================
+
+# def sync_loan_transactions(instance):
+#     """
+#     Loan create/update এ সব related transaction sync করবে.
+#     Return করবে installment এর জন্য final total_amount.
+#     """
+#     original_amount = q2(instance.amount or 0)
+#     total_amount = original_amount
+#     received_by = getattr(instance, "created_by", None)
+
+#     valid_behavior_modelnames = []
+
+#     # -------------------------
+#     # 1) Loan behavior charges
+#     # -------------------------
+#     if instance.loan_type and instance.loan_type.behaviour_type:
+#         for item in instance.loan_type.behaviour_type:
+#             behavior_name = item.get("name", "Unknown")
+#             amt = q2(item.get("amount", 0))
+#             is_percent = item.get("is_percent", False)
+
+#             modelname = loan_behavior_modelname(instance.id, behavior_name)
+#             valid_behavior_modelnames.append(modelname)
+
+#             if is_percent:
+#                 added = q2(original_amount * amt / Decimal("100"))
+#                 total_amount = q2(total_amount + added)
+
+#                 create_or_update_transaction(
+#                     customer=instance.customer_name,
+#                     transection_type="cashin",
+#                     amount=added,
+#                     received_by=received_by,
+#                     modelname=modelname,
+#                     mark_paid=True
+#                 )
+#             else:
+#                 total_amount = q2(total_amount + amt)
+
+#                 create_or_update_transaction(
+#                     customer=instance.customer_name,
+#                     transection_type="cashin",
+#                     amount=amt,
+#                     received_by=received_by,
+#                     modelname=modelname,
+#                     mark_paid=True
+#                 )
+
+#     delete_removed_behavior_transactions(instance, valid_behavior_modelnames)
+
+#     # -------------------------
+#     # 2) Down payment
+#     # -------------------------
+#     down_payment = q2(instance.first_down_payment or 0)
+#     dp_modelname = loan_down_payment_modelname(instance.id)
+
+#     if down_payment > 0:
+#         # pay_from_account check/deduct only on create হলে করবা
+#         # update এ balance আবার deduct না করাই safer
+#         create_or_update_transaction(
+#             customer=instance.customer_name,
+#             transection_type="cashin",
+#             amount=down_payment,
+#             received_by=received_by,
+#             modelname=dp_modelname,
+#             mark_paid=True
+#         )
+#         total_amount = q2(max(Decimal("0"), total_amount - down_payment))
+#     else:
+#         Transection.objects.filter(
+#             customer_name=instance.customer_name,
+#             modelname=dp_modelname
+#         ).delete()
+
+#     # -------------------------
+#     # 3) Main loan disbursement
+#     # -------------------------
+#     disbursement_modelname = loan_disbursement_modelname(instance.id)
+#     create_or_update_transaction(
+#         customer=instance.customer_name,
+#         transection_type="cashout",
+#         amount=original_amount,
+#         received_by=received_by,
+#         modelname=disbursement_modelname,
+#         mark_paid=False
+#     )
+
+#     return total_amount
+
+
+# # =========================================================
+# # Installment sync
+# # =========================================================
+
+# def sync_loan_installments(instance, total_amount):
+#     """
+#     Duplicate avoid করতে old installments delete করে নতুন করে create করবে.
+#     """
+#     installment_type = instance.installment_type
+#     if (
+#         not installment_type
+#         or not getattr(installment_type, "instalment_cullect", None)
+#         or installment_type.instalment_cullect <= 0
+#     ):
+#         instance.installment.clear()
+#         Installment.objects.filter(loan_id=str(instance.id)).delete()
+#         return
+
+#     start_date = date.today()
+#     dates = generate_installment_dates(start_date, installment_type)
+#     if not dates:
+#         instance.installment.clear()
+#         Installment.objects.filter(loan_id=str(instance.id)).delete()
+#         return
+
+#     # IMPORTANT:
+#     # old installments first clear + delete
+#     # এতে duplicate বন্ধ হবে
+#     old_installments = Installment.objects.filter(loan_id=str(instance.id))
+#     instance.installment.clear()
+#     old_installments.delete()
+
+#     n = len(dates)
+#     per_installment_amount = q2(total_amount / n) if n else Decimal("0")
+#     remaining_amount = total_amount
+
+#     new_installments = []
+
+#     for i, inst_date in enumerate(dates):
+#         if i == n - 1:
+#             amount = q2(remaining_amount)
+#         else:
+#             amount = per_installment_amount
+#             remaining_amount = q2(remaining_amount - amount)
+
+#         if amount <= 0:
+#             continue
+
+#         inst = Installment.objects.create(
+#             customer_name=instance.customer_name,
+#             installment_date=inst_date,
+#             amount=amount,
+#             installment_status="due",
+#             area_name=instance.area_name,
+#             branch_name=instance.branch_name,
+#             loan_id=str(instance.id),
+#             pay_from_account=instance.pay_from_account,
+#             due_amount=amount
+#         )
+#         new_installments.append(inst)
+
+#     if new_installments:
+#         instance.installment.set(new_installments)
+
+
+# # =========================================================
+# # Main signal
+# # =========================================================
+
+# @receiver(post_save, sender=Loan, dispatch_uid="loan_create_update_sync_signal")
+# def handle_loan_create_or_update(sender, instance, created, **kwargs):
+#     """
+#     Loan create/update দুই ক্ষেত্রেই run করবে.
+#     """
+#     try:
+#         with transaction.atomic():
+#             # Product stock only on create
+#             sync_product_stock_on_create_only(instance, created)
+
+#             # Transactions create/update
+#             total_amount = sync_loan_transactions(instance)
+
+#             # Installments recreate
+#             sync_loan_installments(instance, total_amount)
+
+#             # direct update, no instance.save() here
+#             Loan.objects.filter(pk=instance.pk).update(updated_at=timezone.now())
+
+#     except InsufficientBalanceError as e:
+#         raise ValidationError(str(e))
+#     except Exception as e:
+#         print(f"Error syncing loan data: {str(e)}")
+#         raise
+
+
+
 
 
 
@@ -3121,7 +3124,7 @@ from .models import DailySaving, Transection
 
 
 def daily_saving_modelname(instance_id):
-    return f"Daily Saving : {instance_id}"
+    return f"Daily Saving "
 
 
 @receiver(pre_save, sender=DailySaving)
@@ -3443,282 +3446,3249 @@ def get_existing_transaction(customer, modelname):
         modelname=modelname
     ).order_by("-id").first()
 
-def sync_main_installment_transaction(instance, transaction_model, payment_amount, from_account=False):
-    """
-    Main installment transaction create/update/delete
-    """
-    payment_amount = Decimal(str(payment_amount or 0))
+# def get_existing_transaction(transaction_model, customer, modelname):
+#     return transaction_model.objects.filter(
+#         customer_name=customer,
+#         modelname=modelname
+#     ).order_by("-id").first()
 
-    if from_account:
-        modelname = f"Installment Payment from Account : {instance.id}, Loan: {instance.loan_id})"
+
+# def sync_main_installment_transaction(instance, transaction_model, payment_amount, from_account=False):
+#     """
+#     Main installment transaction create/update/delete
+#     """
+#     payment_amount = Decimal(str(payment_amount or 0))
+
+#     if from_account:
+#         modelname = f"Installment Payment from Account : {instance.id}, Loan: {instance.loan_id})"
+#     else:
+#         modelname = f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
+
+#     tx = get_existing_transaction(
+#         transaction_model,
+#         instance.customer_name,
+#         modelname
+#     )
+
+#     if payment_amount <= 0:
+#         if tx:
+#             tx.delete()
+#         return None
+
+#     if tx:
+#         tx.amount = payment_amount
+
+#         if hasattr(tx, "customer_name"):
+#             tx.customer_name = instance.customer_name
+
+#         if hasattr(tx, "received_by"):
+#             tx.received_by = instance.received_by
+
+#         if hasattr(tx, "transection_type"):
+#             tx.transection_type = "cashin"
+
+#         if hasattr(tx, "paid"):
+#             tx.paid = True
+
+#         if hasattr(tx, "paid_amount"):
+#             tx.paid_amount = payment_amount
+
+#         if hasattr(tx, "due_amount"):
+#             tx.due_amount = Decimal("0")
+
+#         tx.save()
+#         return tx
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=payment_amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname
+#     )
+#     mark_transaction_as_paid(tx, payment_amount)
+#     return tx
+
+
+# def sync_extra_payment_savings(instance, transaction_model, old_extra_amount, new_extra_amount):
+#     """
+#     Extra Payment Savings transaction + customer balance sync
+#     """
+#     old_extra_amount = Decimal(str(old_extra_amount or 0))
+#     new_extra_amount = Decimal(str(new_extra_amount or 0))
+
+#     modelname = f"Extra Payment Savings : {instance.id})"
+#     extra_tx = get_existing_transaction(
+#         transaction_model,
+#         instance.customer_name,
+#         modelname
+#     )
+
+#     # old extra reverse from customer balance
+#     if old_extra_amount > 0:
+#         update_customer_balance(instance.customer_name, -old_extra_amount)
+
+#     # if new extra = 0 -> delete old transaction
+#     if new_extra_amount <= 0:
+#         if extra_tx:
+#             extra_tx.delete()
+#         return None
+
+#     # apply new extra to customer balance
+#     update_customer_balance(instance.customer_name, new_extra_amount)
+
+#     if extra_tx:
+#         extra_tx.amount = new_extra_amount
+
+#         if hasattr(extra_tx, "customer_name"):
+#             extra_tx.customer_name = instance.customer_name
+
+#         if hasattr(extra_tx, "received_by"):
+#             extra_tx.received_by = instance.received_by
+
+#         if hasattr(extra_tx, "transection_type"):
+#             extra_tx.transection_type = "cashin"
+
+#         if hasattr(extra_tx, "paid"):
+#             extra_tx.paid = True
+
+#         if hasattr(extra_tx, "paid_amount"):
+#             extra_tx.paid_amount = new_extra_amount
+
+#         if hasattr(extra_tx, "due_amount"):
+#             extra_tx.due_amount = Decimal("0")
+
+#         extra_tx.save()
+#         return extra_tx
+
+#     extra_tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=new_extra_amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname
+#     )
+#     mark_transaction_as_paid(extra_tx, new_extra_amount)
+#     return extra_tx
+
+
+
+# def sync_main_installment_transaction(instance, transaction_model, payment_amount, from_account=False):
+#     """
+#     Main installment transaction create/update/delete
+#     """
+#     payment_amount = Decimal(str(payment_amount or 0))
+
+#     if from_account:
+#         modelname = f"Installment Payment from Account : {instance.id}, Loan: {instance.loan_id})"
+#     else:
+#         modelname = f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
+
+#     tx = get_existing_transaction(
+#         instance.customer_name,
+#         modelname
+#     )
+
+#     if payment_amount <= 0:
+#         if tx:
+#             tx.delete()
+#         return None
+
+#     if tx:
+#         tx.amount = payment_amount
+
+#         if hasattr(tx, "customer_name"):
+#             tx.customer_name = instance.customer_name
+
+#         if hasattr(tx, "received_by"):
+#             tx.received_by = instance.received_by
+
+#         if hasattr(tx, "transection_type"):
+#             tx.transection_type = "cashin"
+
+#         if hasattr(tx, "paid"):
+#             tx.paid = True
+
+#         if hasattr(tx, "paid_amount"):
+#             tx.paid_amount = payment_amount
+
+#         if hasattr(tx, "due_amount"):
+#             tx.due_amount = Decimal("0")
+
+#         tx.save()
+#         return tx
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=payment_amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname
+#     )
+#     mark_transaction_as_paid(tx, payment_amount)
+#     return tx
+
+
+# def sync_extra_payment_savings(instance, transaction_model, old_extra_amount, new_extra_amount):
+#     """
+#     Extra Payment Savings transaction + customer balance sync
+#     """
+#     old_extra_amount = Decimal(str(old_extra_amount or 0))
+#     new_extra_amount = Decimal(str(new_extra_amount or 0))
+
+#     modelname = f"Extra Payment Savings : {instance.id})"
+#     extra_tx = get_existing_transaction(
+#         instance.customer_name,
+#         modelname
+#     )
+
+#     # old extra reverse from customer balance
+#     if old_extra_amount > 0:
+#         update_customer_balance(instance.customer_name, -old_extra_amount)
+
+#     # if new extra = 0 -> delete old transaction
+#     if new_extra_amount <= 0:
+#         if extra_tx:
+#             extra_tx.delete()
+#         return None
+
+#     # apply new extra to customer balance
+#     update_customer_balance(instance.customer_name, new_extra_amount)
+
+#     if extra_tx:
+#         extra_tx.amount = new_extra_amount
+
+#         if hasattr(extra_tx, "customer_name"):
+#             extra_tx.customer_name = instance.customer_name
+
+#         if hasattr(extra_tx, "received_by"):
+#             extra_tx.received_by = instance.received_by
+
+#         if hasattr(extra_tx, "transection_type"):
+#             extra_tx.transection_type = "cashin"
+
+#         if hasattr(extra_tx, "paid"):
+#             extra_tx.paid = True
+
+#         if hasattr(extra_tx, "paid_amount"):
+#             extra_tx.paid_amount = new_extra_amount
+
+#         if hasattr(extra_tx, "due_amount"):
+#             extra_tx.due_amount = Decimal("0")
+
+#         extra_tx.save()
+#         return extra_tx
+
+#     extra_tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=new_extra_amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname
+#     )
+#     mark_transaction_as_paid(extra_tx, new_extra_amount)
+#     return extra_tx
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     Installment payment update logic:
+#     - main transaction update
+#     - extra savings transaction update/delete
+#     - customer balance reverse/apply correctly
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = getattr(instance, "_old_pay", None)
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if not (old_pay != instance.installment_pay and instance.installment_pay is not None):
+#         return
+
+#     print(f"\n--- Installment Payment: ID {instance.id} ---")
+
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     current_due = Decimal(str(instance.due_amount or installment_amount))
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     old_actual_payment = min(old_pay, installment_amount)
+#     new_actual_payment = min(new_pay, installment_amount)
+
+#     old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
+
+#     print(
+#         f"Old Pay: {old_pay:.2f}, New Pay: {new_pay:.2f}, "
+#         f"Old Extra: {old_extra_amount:.2f}, New Extra: {new_extra_amount:.2f}"
+#     )
+
+#     if instance.pay_from_account:
+#         print("Pay from account enabled - processing account deduction...")
+
+#         try:
+#             # only deduct the difference from account
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}"
+#                 )
+#                 print(f"✓ Deducted extra {pay_diff:.2f} from account")
+
+#             elif pay_diff < 0:
+#                 # refund account if payment reduced
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+#                 print(f"✓ Refunded {abs(pay_diff):.2f} to account")
+
+#             # get transaction model from existing/created tx
+#             tx_model = None
+
+#             sample_tx_name = f"Installment Payment from Account : {instance.id}, Loan: {instance.loan_id})"
+#             existing_tx = create_transaction_with_customer_info(
+#                 instance.customer_name,
+#                 transection_type="cashin",
+#                 amount=new_actual_payment,
+#                 customer_name=instance.customer_name,
+#                 received_by=instance.received_by,
+#                 modelname=sample_tx_name
+#             )
+#             tx_model = existing_tx.__class__
+
+#             # delete the just-created duplicate if old one exists situation happens
+#             # safer approach: use existing transaction after getting model
+#             duplicate_check = tx_model.objects.filter(modelname=sample_tx_name).order_by("-id")
+#             if duplicate_check.count() > 1:
+#                 duplicate_check.first().delete()
+
+#             # main transaction sync
+#             sync_main_installment_transaction(
+#                 instance=instance,
+#                 transaction_model=tx_model,
+#                 payment_amount=new_actual_payment,
+#                 from_account=True
+#             )
+
+#             # extra transaction sync
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 transaction_model=tx_model,
+#                 old_extra_amount=old_extra_amount,
+#                 new_extra_amount=new_extra_amount
+#             )
+
+#             new_due_amount = installment_amount - new_actual_payment
+
+#             if new_due_amount <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0")
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=new_due_amount
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         # create one tx only to get model class
+#         temp_tx = create_transaction_with_customer_info(
+#             instance.customer_name,
+#             transection_type="cashin",
+#             amount=new_actual_payment,
+#             customer_name=instance.customer_name,
+#             received_by=instance.received_by,
+#             modelname=f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
+#         )
+#         tx_model = temp_tx.__class__
+
+#         # remove duplicate temp create if exists
+#         duplicate_check = tx_model.objects.filter(
+#             modelname=f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
+#         ).order_by("-id")
+#         if duplicate_check.count() > 1:
+#             duplicate_check.first().delete()
+
+#         # main transaction sync
+#         sync_main_installment_transaction(
+#             instance=instance,
+#             transaction_model=tx_model,
+#             payment_amount=new_actual_payment,
+#             from_account=False
+#         )
+
+#         # extra savings sync
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             transaction_model=tx_model,
+#             old_extra_amount=old_extra_amount,
+#             new_extra_amount=new_extra_amount
+#         )
+
+#         new_due_amount = installment_amount - new_actual_payment
+
+#         if new_due_amount <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0")
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=new_due_amount
+#             )
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import post_save
+# from django.dispatch import receiver
+
+
+# def get_installment_payment_modelname(from_account=False):
+#     return "Installment Payment From Account" if from_account else "Installment Payment"
+
+
+# def get_extra_payment_savings_modelname():
+#     return "Extra Payment Savings"
+
+
+# def get_existing_installment_transaction(instance, from_account=False):
+#     modelname = get_installment_payment_modelname(from_account)
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# def get_existing_extra_transaction(instance):
+#     modelname = get_extra_payment_savings_modelname()
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# def assign_installment_transaction_fields(tx, instance, amount, from_account=False):
+#     """
+#     Common transaction field assignment
+#     """
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_installment_payment_modelname(from_account)
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# def assign_extra_transaction_fields(tx, instance, amount):
+#     """
+#     Common extra payment savings transaction field assignment
+#     """
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_extra_payment_savings_modelname()
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# def create_installment_transaction(instance, amount, from_account=False):
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_installment_payment_modelname(from_account)
+#     )
+
+#     tx = assign_installment_transaction_fields(tx, instance, amount, from_account)
+#     tx.save()
+#     mark_transaction_as_paid(tx, amount)
+#     return tx
+
+
+# def create_extra_transaction(instance, amount):
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_extra_payment_savings_modelname()
+#     )
+
+#     tx = assign_extra_transaction_fields(tx, instance, amount)
+#     tx.save()
+#     mark_transaction_as_paid(tx, amount)
+#     return tx
+
+
+# def sync_main_installment_transaction(instance, payment_amount, from_account=False):
+#     """
+#     Main installment transaction create/update/delete
+#     modelname fixed থাকবে
+#     loan_id + installment_id আলাদা field এ যাবে
+#     """
+#     payment_amount = Decimal(str(payment_amount or 0))
+#     tx = get_existing_installment_transaction(instance, from_account=from_account)
+
+#     if payment_amount <= 0:
+#         if tx:
+#             tx.delete()
+#         return None
+
+#     if tx:
+#         tx = assign_installment_transaction_fields(
+#             tx=tx,
+#             instance=instance,
+#             amount=payment_amount,
+#             from_account=from_account
+#         )
+#         tx.save()
+#         return tx
+
+#     return create_installment_transaction(
+#         instance=instance,
+#         amount=payment_amount,
+#         from_account=from_account
+#     )
+
+
+# def sync_extra_payment_savings(instance, old_extra_amount, new_extra_amount):
+#     """
+#     Extra Payment Savings transaction + customer balance sync
+#     """
+#     old_extra_amount = Decimal(str(old_extra_amount or 0))
+#     new_extra_amount = Decimal(str(new_extra_amount or 0))
+
+#     extra_tx = get_existing_extra_transaction(instance)
+
+#     # old extra reverse from customer balance
+#     if old_extra_amount > 0:
+#         update_customer_balance(instance.customer_name, -old_extra_amount)
+
+#     # if new extra = 0 -> delete old transaction
+#     if new_extra_amount <= 0:
+#         if extra_tx:
+#             extra_tx.delete()
+#         return None
+
+#     # apply new extra to customer balance
+#     update_customer_balance(instance.customer_name, new_extra_amount)
+
+#     if extra_tx:
+#         extra_tx = assign_extra_transaction_fields(
+#             tx=extra_tx,
+#             instance=instance,
+#             amount=new_extra_amount
+#         )
+#         extra_tx.save()
+#         return extra_tx
+
+#     return create_extra_transaction(instance, new_extra_amount)
+
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     Installment payment update logic:
+#     - main transaction update
+#     - extra savings transaction update/delete
+#     - customer balance reverse/apply correctly
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = getattr(instance, "_old_pay", None)
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if not (old_pay != instance.installment_pay and instance.installment_pay is not None):
+#         return
+
+#     print(f"\n--- Installment Payment: ID {instance.id} | Loan: {instance.loan_id} ---")
+
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     current_due = Decimal(str(instance.due_amount or installment_amount))
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     old_actual_payment = min(old_pay, installment_amount)
+#     new_actual_payment = min(new_pay, installment_amount)
+
+#     old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
+
+#     print(
+#         f"Old Pay: {old_pay:.2f}, New Pay: {new_pay:.2f}, "
+#         f"Old Extra: {old_extra_amount:.2f}, New Extra: {new_extra_amount:.2f}"
+#     )
+
+#     if instance.pay_from_account:
+#         print("Pay from account enabled - processing account deduction...")
+
+#         try:
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+#                 print(f"✓ Deducted extra {pay_diff:.2f} from account")
+
+#             elif pay_diff < 0:
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+#                 print(f"✓ Refunded {abs(pay_diff):.2f} to account")
+
+#             # main transaction sync
+#             sync_main_installment_transaction(
+#                 instance=instance,
+#                 payment_amount=new_actual_payment,
+#                 from_account=True
+#             )
+
+#             # extra transaction sync
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 old_extra_amount=old_extra_amount,
+#                 new_extra_amount=new_extra_amount
+#             )
+
+#             new_due_amount = installment_amount - new_actual_payment
+
+#             if new_due_amount <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0")
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=new_due_amount
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         # main transaction sync
+#         sync_main_installment_transaction(
+#             instance=instance,
+#             payment_amount=new_actual_payment,
+#             from_account=False
+#         )
+
+#         # extra transaction sync
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             old_extra_amount=old_extra_amount,
+#             new_extra_amount=new_extra_amount
+#         )
+
+#         new_due_amount = installment_amount - new_actual_payment
+
+#         if new_due_amount <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0")
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=new_due_amount
+#             )
+
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import post_save, pre_save
+# from django.dispatch import receiver
+
+# # ---------------------------------------------------
+# # MODELNAME HELPERS
+# # ---------------------------------------------------
+
+# def get_installment_payment_modelname(from_account=False):
+#     return "Installment Payment From Account" if from_account else "Installment Payment"
+
+
+# def get_extra_payment_savings_modelname():
+#     return "Extra Payment Savings"
+
+
+# # ---------------------------------------------------
+# # QUERY HELPERS
+# # ---------------------------------------------------
+
+# def get_existing_installment_transaction(instance, from_account=False):
+#     modelname = get_installment_payment_modelname(from_account)
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname,
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# def get_existing_extra_transaction(instance):
+#     modelname = get_extra_payment_savings_modelname()
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname,
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# # ---------------------------------------------------
+# # FIELD ASSIGN HELPERS
+# # ---------------------------------------------------
+
+# def assign_main_transaction_fields(tx, instance, amount, from_account=False):
+#     amount = Decimal(str(amount or 0))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_installment_payment_modelname(from_account)
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# def assign_extra_transaction_fields(tx, instance, amount):
+#     amount = Decimal(str(amount or 0))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_extra_payment_savings_modelname()
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# # ---------------------------------------------------
+# # CREATE HELPERS
+# # ---------------------------------------------------
+
+# def create_installment_transaction(instance, amount, from_account=False):
+#     amount = Decimal(str(amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_installment_payment_modelname(from_account),
+#     )
+
+#     tx = assign_main_transaction_fields(tx, instance, amount, from_account)
+#     tx.save()
+#     mark_transaction_as_paid(tx, amount)
+#     return tx
+
+
+# def create_extra_transaction(instance, amount):
+#     amount = Decimal(str(amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_extra_payment_savings_modelname(),
+#     )
+
+#     tx = assign_extra_transaction_fields(tx, instance, amount)
+#     tx.save()
+#     mark_transaction_as_paid(tx, amount)
+#     return tx
+
+
+# # ---------------------------------------------------
+# # SYNC HELPERS
+# # ---------------------------------------------------
+
+# def sync_main_installment_transaction(instance, payment_amount, from_account=False):
+#     """
+#     Main installment transaction create/update/delete
+#     """
+#     payment_amount = Decimal(str(payment_amount or 0))
+#     tx = get_existing_installment_transaction(instance, from_account=from_account)
+
+#     if payment_amount <= 0:
+#         if tx:
+#             tx.delete()
+#         return None
+
+#     if tx:
+#         tx = assign_main_transaction_fields(
+#             tx=tx,
+#             instance=instance,
+#             amount=payment_amount,
+#             from_account=from_account,
+#         )
+#         tx.save()
+#         return tx
+
+#     return create_installment_transaction(
+#         instance=instance,
+#         amount=payment_amount,
+#         from_account=from_account,
+#     )
+
+
+# def sync_extra_payment_savings(instance, old_extra_amount, new_extra_amount):
+#     """
+#     Extra Payment Savings transaction + customer balance sync
+#     """
+#     old_extra_amount = Decimal(str(old_extra_amount or 0))
+#     new_extra_amount = Decimal(str(new_extra_amount or 0))
+
+#     extra_tx = get_existing_extra_transaction(instance)
+
+#     # reverse previous extra from customer balance
+#     if old_extra_amount > 0:
+#         update_customer_balance(instance.customer_name, -old_extra_amount)
+
+#     # if no new extra -> delete extra tx
+#     if new_extra_amount <= 0:
+#         if extra_tx:
+#             extra_tx.delete()
+#         return None
+
+#     # apply new extra to customer balance
+#     update_customer_balance(instance.customer_name, new_extra_amount)
+
+#     if extra_tx:
+#         extra_tx = assign_extra_transaction_fields(
+#             tx=extra_tx,
+#             instance=instance,
+#             amount=new_extra_amount,
+#         )
+#         extra_tx.save()
+#         return extra_tx
+
+#     return create_extra_transaction(instance, new_extra_amount)
+
+
+# # ---------------------------------------------------
+# # PRE SAVE - OLD VALUE CAPTURE
+# # ---------------------------------------------------
+
+# @receiver(pre_save, sender=Installment)
+# def store_old_installment_values(sender, instance, **kwargs):
+#     if not instance.pk:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+#         return
+
+#     try:
+#         old_instance = Installment.objects.get(pk=instance.pk)
+#         instance._old_status = old_instance.installment_status
+#         instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+#         instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+#     except Installment.DoesNotExist:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+
+
+# # ---------------------------------------------------
+# # MAIN SIGNAL
+# # ---------------------------------------------------
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     Installment payment update logic:
+#     - main transaction update
+#     - extra savings transaction update/delete
+#     - customer balance reverse/apply correctly
+#     - due amount update
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if instance.installment_pay is None:
+#         return
+
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+
+#     # no change হলে কিছু করবে না
+#     if old_pay == new_pay:
+#         return
+
+#     print(f"\n--- Installment Payment Update ---")
+#     print(f"Installment ID: {instance.id}")
+#     print(f"Loan ID: {instance.loan_id}")
+#     print(f"Old Pay: {old_pay}")
+#     print(f"New Pay: {new_pay}")
+
+#     installment_amount = Decimal(str(instance.amount or 0))
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     # installment মূল amount পর্যন্ত main payment
+#     old_actual_payment = min(old_pay, installment_amount)
+#     new_actual_payment = min(new_pay, installment_amount)
+
+#     # installment amount এর বেশি গেলে extra saving
+#     old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
+
+#     print(
+#         f"Old Actual: {old_actual_payment:.2f}, New Actual: {new_actual_payment:.2f}, "
+#         f"Old Extra: {old_extra_amount:.2f}, New Extra: {new_extra_amount:.2f}"
+#     )
+
+#     if instance.pay_from_account:
+#         print("Pay from account enabled...")
+
+#         try:
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+#                 print(f"✓ Deducted {pay_diff:.2f} from account")
+
+#             elif pay_diff < 0:
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+#                 print(f"✓ Refunded {abs(pay_diff):.2f} to account")
+
+#             # main installment transaction
+#             sync_main_installment_transaction(
+#                 instance=instance,
+#                 payment_amount=new_actual_payment,
+#                 from_account=True,
+#             )
+
+#             # extra savings transaction
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 old_extra_amount=old_extra_amount,
+#                 new_extra_amount=new_extra_amount,
+#             )
+
+#             # due update
+#             new_due_amount = installment_amount - new_actual_payment
+
+#             if new_due_amount <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0"),
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=new_due_amount,
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount if old_due_amount is not None else installment_amount,
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         # main installment transaction
+#         sync_main_installment_transaction(
+#             instance=instance,
+#             payment_amount=new_actual_payment,
+#             from_account=False,
+#         )
+
+#         # extra savings transaction
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             old_extra_amount=old_extra_amount,
+#             new_extra_amount=new_extra_amount,
+#         )
+
+#         # due update
+#         new_due_amount = installment_amount - new_actual_payment
+
+#         if new_due_amount <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0"),
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=new_due_amount,
+#             )
+
+
+
+
+
+
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import post_save, pre_save
+# from django.dispatch import receiver
+
+# # =========================================================
+# # MODELNAME HELPERS
+# # =========================================================
+
+# def get_installment_payment_modelname(from_account=False):
+#     return "Installment Payment From Account" if from_account else "Installment Payment"
+
+
+# def get_extra_payment_savings_modelname():
+#     return "Extra Payment Savings"
+# 
+# 
+# # =========================================================
+# # TRANSACTION CREATE HELPERS
+# # =========================================================
+
+# def create_installment_payment_history_transaction(instance, payment_delta, remaining_due, from_account=False):
+#     """
+#     Every payment creates a NEW transaction row.
+#     This keeps payment history.
+#     """
+#     payment_delta = Decimal(str(payment_delta or 0))
+#     remaining_due = Decimal(str(remaining_due or 0))
+
+#     if payment_delta <= 0:
+#         return None
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=payment_delta,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_installment_payment_modelname(from_account),
+#     )
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = payment_delta
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = payment_delta
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = remaining_due
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_installment_payment_modelname(from_account)
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     tx.save()
+#     return tx
+
+
+# def create_extra_payment_savings_transaction(instance, extra_amount):
+#     """
+#     Extra amount over installment amount goes to savings transaction.
+#     """
+#     extra_amount = Decimal(str(extra_amount or 0))
+
+#     if extra_amount <= 0:
+#         return None
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=extra_amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_extra_payment_savings_modelname(),
+#     )
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = extra_amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = extra_amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_extra_payment_savings_modelname()
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     tx.save()
+#     return tx
+
+
+# # =========================================================
+# # PRE SAVE - OLD VALUE STORE
+# # =========================================================
+
+# @receiver(pre_save, sender=Installment)
+# def store_old_installment_values(sender, instance, **kwargs):
+#     if not instance.pk:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+#         return
+
+#     try:
+#         old_instance = Installment.objects.get(pk=instance.pk)
+#         instance._old_status = old_instance.installment_status
+#         instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+#         instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+#     except Installment.DoesNotExist:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+
+
+# # =========================================================
+# # MAIN SIGNAL
+# # =========================================================
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     Rule:
+#     - installment_pay is treated as TOTAL PAID so far for this installment
+#     - every increase creates a NEW transaction row for only the increased amount
+#     - due_amount decreases accordingly
+#     - every transaction stores loan_id and installment_id
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if instance.installment_pay is None:
+#         return
+
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+#     installment_amount = Decimal(str(instance.amount or 0))
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     if old_pay == new_pay:
+#         return
+
+#     # current actual paid up to installment amount
+#     old_actual_paid = min(old_pay, installment_amount)
+#     new_actual_paid = min(new_pay, installment_amount)
+
+#     # only new payment portion for this save
+#     payment_delta = new_actual_paid - old_actual_paid
+
+#     # extra over installment amount
+#     old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
+#     extra_delta = new_extra_amount - old_extra_amount
+
+#     # new remaining due after this save
+#     remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
+
+#     print("\n--- Installment Payment Update ---")
+#     print(f"Installment ID: {instance.id}")
+#     print(f"Loan ID: {instance.loan_id}")
+#     print(f"Old Pay: {old_pay}")
+#     print(f"New Pay: {new_pay}")
+#     print(f"Payment Delta: {payment_delta}")
+#     print(f"Remaining Due: {remaining_due}")
+#     print(f"Extra Delta: {extra_delta}")
+
+#     if instance.pay_from_account:
+#         try:
+#             total_diff = new_pay - old_pay
+
+#             if total_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     total_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+
+#             elif total_diff < 0:
+#                 # rollback/reduction case
+#                 update_customer_balance(instance.customer_name, abs(total_diff))
+
+#             # create new main payment transaction only for increased amount
+#             if payment_delta > 0:
+#                 create_installment_payment_history_transaction(
+#                     instance=instance,
+#                     payment_delta=payment_delta,
+#                     remaining_due=remaining_due,
+#                     from_account=True,
+#                 )
+
+#             # extra payment savings transaction only for increased extra
+#             if extra_delta > 0:
+#                 update_customer_balance(instance.customer_name, extra_delta)
+#                 create_extra_payment_savings_transaction(
+#                     instance=instance,
+#                     extra_amount=extra_delta,
+#                 )
+
+#             # if payment reduced and old extra existed, reverse savings balance
+#             elif extra_delta < 0:
+#                 update_customer_balance(instance.customer_name, extra_delta)  # negative adjustment
+
+#             # update installment due/status
+#             if remaining_due <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0"),
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=remaining_due,
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount if old_due_amount is not None else installment_amount,
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         # only create transaction for increased payment
+#         if payment_delta > 0:
+#             create_installment_payment_history_transaction(
+#                 instance=instance,
+#                 payment_delta=payment_delta,
+#                 remaining_due=remaining_due,
+#                 from_account=False,
+#             )
+
+#         # handle extra payment savings delta
+#         if extra_delta > 0:
+#             update_customer_balance(instance.customer_name, extra_delta)
+#             create_extra_payment_savings_transaction(
+#                 instance=instance,
+#                 extra_amount=extra_delta,
+#             )
+#         elif extra_delta < 0:
+#             update_customer_balance(instance.customer_name, extra_delta)  # negative adjustment
+
+#         # update installment due/status
+#         if remaining_due <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0"),
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=remaining_due,
+#             )
+
+
+
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import pre_save, post_save
+# from django.dispatch import receiver
+# from django.utils import timezone
+
+# # =========================================================
+# # MODEL NAME HELPERS
+# # =========================================================
+
+# def get_installment_modelname(instance, from_account=False):
+#     base = "Installment Payment From Account" if from_account else "Installment Payment"
+#     return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# def get_previous_installment_modelname(instance, from_account=False):
+#     base = "Previous Installment Pay From Account" if from_account else "Previous Installment Pay"
+#     return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# def get_extra_payment_modelname(instance):
+#     return f"Extra Payment Savings | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# # =========================================================
+# # DATE HELPERS
+# # =========================================================
+
+# def is_same_day_transaction(tx):
+#     if not tx:
+#         return False
+
+#     today = timezone.localdate()
+
+#     # use whichever field exists in your Transection model
+#     if hasattr(tx, "date") and tx.date:
+#         try:
+#             return tx.date == today
+#         except Exception:
+#             pass
+
+#     if hasattr(tx, "created_at") and tx.created_at:
+#         try:
+#             return tx.created_at.date() == today
+#         except Exception:
+#             pass
+
+#     if hasattr(tx, "created") and tx.created:
+#         try:
+#             return tx.created.date() == today
+#         except Exception:
+#             pass
+
+#     return False
+
+
+# # =========================================================
+# # QUERY HELPERS
+# # =========================================================
+
+# def get_installment_transactions(instance):
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     qs = qs.filter(
+#         modelname__iregex=r"^(Installment Payment|Installment Payment From Account|Previous Installment Pay|Previous Installment Pay From Account)"
+#     )
+
+#     return qs.order_by("-id")
+
+
+# def get_latest_installment_transaction(instance):
+#     return get_installment_transactions(instance).first()
+
+
+# def get_extra_transactions(instance):
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     qs = qs.filter(modelname__startswith="Extra Payment Savings")
+
+#     return qs.order_by("-id")
+
+
+# def get_latest_extra_transaction(instance):
+#     return get_extra_transactions(instance).first()
+
+
+# # =========================================================
+# # COMMON FIELD SETTER
+# # =========================================================
+
+# def set_common_transaction_fields(tx, instance, modelname, amount, due_amount):
+#     amount = Decimal(str(amount or 0))
+#     due_amount = Decimal(str(due_amount or 0))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = modelname
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = due_amount
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# # =========================================================
+# # CREATE / UPDATE TRANSACTION HELPERS
+# # =========================================================
+
+# def create_transaction_row(instance, modelname, amount, due_amount):
+#     amount = Decimal(str(amount or 0))
+#     due_amount = Decimal(str(due_amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname,
+#     )
+
+#     tx = set_common_transaction_fields(
+#         tx=tx,
+#         instance=instance,
+#         modelname=modelname,
+#         amount=amount,
+#         due_amount=due_amount,
+#     )
+#     tx.save()
+#     return tx
+
+
+# def update_transaction_row(tx, instance, modelname, amount, due_amount):
+#     tx = set_common_transaction_fields(
+#         tx=tx,
+#         instance=instance,
+#         modelname=modelname,
+#         amount=amount,
+#         due_amount=due_amount,
+#     )
+#     tx.save()
+#     return tx
+
+
+# # =========================================================
+# # INSTALLMENT PAYMENT SYNC
+# # =========================================================
+
+# def sync_installment_payment_transaction(instance, old_pay, new_pay, from_account=False):
+#     """
+#     Logic:
+#     - first payment -> Installment Payment
+#     - same day edit -> update same transaction
+#     - later day increase -> create new Previous Installment Pay transaction
+#     """
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     new_pay = Decimal(str(new_pay or 0))
+
+#     old_actual_paid = min(old_pay, installment_amount)
+#     new_actual_paid = min(new_pay, installment_amount)
+
+#     delta = new_actual_paid - old_actual_paid
+#     remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
+
+#     latest_tx = get_latest_installment_transaction(instance)
+
+#     # no main payment
+#     if new_actual_paid <= 0:
+#         if latest_tx and is_same_day_transaction(latest_tx):
+#             latest_tx.delete()
+#         return None
+
+#     # first ever payment
+#     if not latest_tx:
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_installment_modelname(instance, from_account=from_account),
+#             amount=new_actual_paid,
+#             due_amount=remaining_due,
+#         )
+
+#     # same day edit -> update latest row
+#     if is_same_day_transaction(latest_tx):
+#         current_amount = Decimal(str(getattr(latest_tx, "amount", 0) or 0))
+#         updated_amount = current_amount + delta
+
+#         if updated_amount <= 0:
+#             latest_tx.delete()
+#             return None
+
+#         return update_transaction_row(
+#             tx=latest_tx,
+#             instance=instance,
+#             modelname=latest_tx.modelname,  # keep old modelname
+#             amount=updated_amount,
+#             due_amount=remaining_due,
+#         )
+
+#     # another day + increased pay -> new "Previous Installment Pay"
+#     if delta > 0:
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_previous_installment_modelname(instance, from_account=from_account),
+#             amount=delta,
+#             due_amount=remaining_due,
+#         )
+
+#     # another day + reduced pay -> no new transaction
+#     return latest_tx
+
+
+# # =========================================================
+# # EXTRA PAYMENT SAVINGS SYNC
+# # =========================================================
+
+# def sync_extra_payment_savings(instance, old_pay, new_pay):
+#     """
+#     Extra amount = payment over installment amount
+
+#     Rules:
+#     - same day extra create/update/delete
+#     - later extra increase -> create new row
+#     """
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     new_pay = Decimal(str(new_pay or 0))
+
+#     old_extra = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra = max(new_pay - installment_amount, Decimal("0"))
+
+#     latest_extra_tx = get_latest_extra_transaction(instance)
+
+#     # same day existing extra -> update/delete
+#     if latest_extra_tx and is_same_day_transaction(latest_extra_tx):
+#         delta_balance = new_extra - old_extra
+
+#         if delta_balance != 0:
+#             update_customer_balance(instance.customer_name, delta_balance)
+
+#         if new_extra <= 0:
+#             latest_extra_tx.delete()
+#             return None
+
+#         return update_transaction_row(
+#             tx=latest_extra_tx,
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=new_extra,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # no existing extra row yet
+#     if new_extra > 0 and not latest_extra_tx:
+#         update_customer_balance(instance.customer_name, new_extra)
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=new_extra,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # later day extra increase -> new row
+#     extra_delta = new_extra - old_extra
+#     if extra_delta > 0:
+#         update_customer_balance(instance.customer_name, extra_delta)
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=extra_delta,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # later day extra reduced -> do not touch old history row
+#     return latest_extra_tx
+
+
+# # =========================================================
+# # PRE SAVE - STORE OLD VALUES
+# # =========================================================
+
+# @receiver(pre_save, sender=Installment)
+# def store_old_installment_values(sender, instance, **kwargs):
+#     if not instance.pk:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+#         return
+
+#     try:
+#         old_instance = Installment.objects.get(pk=instance.pk)
+#         instance._old_status = old_instance.installment_status
+#         instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+#         instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+#     except Installment.DoesNotExist:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+
+
+# # =========================================================
+# # MAIN SIGNAL
+# # =========================================================
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     installment_pay is treated as cumulative total paid for that installment
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if instance.installment_pay is None:
+#         return
+
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+#     installment_amount = Decimal(str(instance.amount or 0))
+
+#     if old_pay == new_pay:
+#         return
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     new_actual_paid = min(new_pay, installment_amount)
+#     remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
+
+#     print("\n--- Installment Payment Update ---")
+#     print(f"Installment ID: {instance.id}")
+#     print(f"Loan ID: {instance.loan_id}")
+#     print(f"Old Pay: {old_pay}")
+#     print(f"New Pay: {new_pay}")
+#     print(f"Remaining Due: {remaining_due}")
+
+#     if instance.pay_from_account:
+#         try:
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+#             elif pay_diff < 0:
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+
+#             sync_installment_payment_transaction(
+#                 instance=instance,
+#                 old_pay=old_pay,
+#                 new_pay=new_pay,
+#                 from_account=True,
+#             )
+
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 old_pay=old_pay,
+#                 new_pay=new_pay,
+#             )
+
+#             if remaining_due <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0"),
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=remaining_due,
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount if old_due_amount is not None else installment_amount,
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         sync_installment_payment_transaction(
+#             instance=instance,
+#             old_pay=old_pay,
+#             new_pay=new_pay,
+#             from_account=False,
+#         )
+
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             old_pay=old_pay,
+#             new_pay=new_pay,
+#         )
+
+#         if remaining_due <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0"),
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=remaining_due,
+#             )
+
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import pre_save, post_save
+# from django.dispatch import receiver
+# from django.utils import timezone
+
+# # =========================================================
+# # MODEL NAME HELPERS
+# # =========================================================
+
+# def get_installment_modelname(instance, from_account=False):
+#     base = "Installment Payment From Account" if from_account else "Installment Payment"
+#     return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# def get_previous_installment_modelname(instance, from_account=False):
+#     base = "Previous Installment Pay From Account" if from_account else "Previous Installment Pay"
+#     return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# def get_extra_payment_modelname(instance):
+#     return f"Extra Payment Savings | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# # =========================================================
+# # DATE HELPERS
+# # =========================================================
+
+# def is_same_day_transaction(tx):
+#     if not tx:
+#         return False
+
+#     today = timezone.localdate()
+
+#     # use whichever field exists in your Transection model
+#     if hasattr(tx, "date") and tx.date:
+#         try:
+#             return tx.date == today
+#         except Exception:
+#             pass
+
+#     if hasattr(tx, "created_at") and tx.created_at:
+#         try:
+#             return tx.created_at.date() == today
+#         except Exception:
+#             pass
+
+#     if hasattr(tx, "created") and tx.created:
+#         try:
+#             return tx.created.date() == today
+#         except Exception:
+#             pass
+
+#     return False
+
+
+# # =========================================================
+# # QUERY HELPERS
+# # =========================================================
+
+# def transection_has_field(field_name):
+#     try:
+#         Transection._meta.get_field(field_name)
+#         return True
+#     except Exception:
+#         return False
+
+
+# def scope_transaction_queryset_to_installment(qs, instance):
+#     """
+#     Must scope to the exact installment.
+#     Otherwise same customer's other installment transactions
+#     can be picked and updated accidentally.
+#     """
+#     if transection_has_field("loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+#     else:
+#         qs = qs.filter(modelname__icontains=f"Loan: {instance.loan_id}")
+
+#     if transection_has_field("installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+#     else:
+#         qs = qs.filter(modelname__icontains=f"Installment ID: {instance.id}")
+
+#     return qs
+
+
+# def get_installment_transactions(instance):
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name
+#     )
+
+#     qs = scope_transaction_queryset_to_installment(qs, instance)
+
+#     qs = qs.filter(
+#         modelname__iregex=r"^(Installment Payment|Installment Payment From Account|Previous Installment Pay|Previous Installment Pay From Account)"
+#     )
+
+#     return qs.order_by("-id")
+
+
+# def get_latest_installment_transaction(instance):
+#     return get_installment_transactions(instance).first()
+
+
+# def get_extra_transactions(instance):
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name
+#     )
+
+#     qs = scope_transaction_queryset_to_installment(qs, instance)
+
+#     qs = qs.filter(modelname__startswith="Extra Payment Savings")
+
+#     return qs.order_by("-id")
+
+
+# def get_latest_extra_transaction(instance):
+#     return get_extra_transactions(instance).first()
+
+
+# # =========================================================
+# # COMMON FIELD SETTER
+# # =========================================================
+
+# def set_common_transaction_fields(tx, instance, modelname, amount, due_amount):
+#     amount = Decimal(str(amount or 0))
+#     due_amount = Decimal(str(due_amount or 0))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = modelname
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = due_amount
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# # =========================================================
+# # CREATE / UPDATE TRANSACTION HELPERS
+# # =========================================================
+
+# def create_transaction_row(instance, modelname, amount, due_amount):
+#     amount = Decimal(str(amount or 0))
+#     due_amount = Decimal(str(due_amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=modelname,
+#     )
+
+#     tx = set_common_transaction_fields(
+#         tx=tx,
+#         instance=instance,
+#         modelname=modelname,
+#         amount=amount,
+#         due_amount=due_amount,
+#     )
+#     tx.save()
+#     return tx
+
+
+# def update_transaction_row(tx, instance, modelname, amount, due_amount):
+#     tx = set_common_transaction_fields(
+#         tx=tx,
+#         instance=instance,
+#         modelname=modelname,
+#         amount=amount,
+#         due_amount=due_amount,
+#     )
+#     tx.save()
+#     return tx
+
+
+# # =========================================================
+# # INSTALLMENT PAYMENT SYNC
+# # =========================================================
+
+# def sync_installment_payment_transaction(instance, old_pay, new_pay, from_account=False):
+#     """
+#     Logic:
+#     - first payment -> Installment Payment
+#     - same day edit -> update same transaction
+#     - later day increase -> create new Previous Installment Pay transaction
+#     """
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     new_pay = Decimal(str(new_pay or 0))
+
+#     old_actual_paid = min(old_pay, installment_amount)
+#     new_actual_paid = min(new_pay, installment_amount)
+
+#     delta = new_actual_paid - old_actual_paid
+#     remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
+
+#     latest_tx = get_latest_installment_transaction(instance)
+
+#     # no main payment
+#     if new_actual_paid <= 0:
+#         if latest_tx and is_same_day_transaction(latest_tx):
+#             latest_tx.delete()
+#         return None
+
+#     # first ever payment
+#     if not latest_tx:
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_installment_modelname(instance, from_account=from_account),
+#             amount=new_actual_paid,
+#             due_amount=remaining_due,
+#         )
+
+#     # same day edit -> update latest row
+#     if is_same_day_transaction(latest_tx):
+#         current_amount = Decimal(str(getattr(latest_tx, "amount", 0) or 0))
+#         updated_amount = current_amount + delta
+
+#         if updated_amount <= 0:
+#             latest_tx.delete()
+#             return None
+
+#         return update_transaction_row(
+#             tx=latest_tx,
+#             instance=instance,
+#             modelname=latest_tx.modelname,  # keep old modelname
+#             amount=updated_amount,
+#             due_amount=remaining_due,
+#         )
+
+#     # another day + increased pay -> new "Previous Installment Pay"
+#     if delta > 0:
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_previous_installment_modelname(instance, from_account=from_account),
+#             amount=delta,
+#             due_amount=remaining_due,
+#         )
+
+#     # another day + reduced pay -> no new transaction
+#     return latest_tx
+
+
+# # =========================================================
+# # EXTRA PAYMENT SAVINGS SYNC
+# # =========================================================
+
+# def sync_extra_payment_savings(instance, old_pay, new_pay):
+#     """
+#     Extra amount = payment over installment amount
+
+#     Rules:
+#     - same day extra create/update/delete
+#     - later extra increase -> create new row
+#     """
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     old_pay = Decimal(str(old_pay or 0))
+#     new_pay = Decimal(str(new_pay or 0))
+
+#     old_extra = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra = max(new_pay - installment_amount, Decimal("0"))
+
+#     latest_extra_tx = get_latest_extra_transaction(instance)
+
+#     # same day existing extra -> update/delete
+#     if latest_extra_tx and is_same_day_transaction(latest_extra_tx):
+#         delta_balance = new_extra - old_extra
+
+#         if delta_balance != 0:
+#             update_customer_balance(instance.customer_name, delta_balance)
+
+#         if new_extra <= 0:
+#             latest_extra_tx.delete()
+#             return None
+
+#         return update_transaction_row(
+#             tx=latest_extra_tx,
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=new_extra,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # no existing extra row yet
+#     if new_extra > 0 and not latest_extra_tx:
+#         update_customer_balance(instance.customer_name, new_extra)
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=new_extra,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # later day extra increase -> new row
+#     extra_delta = new_extra - old_extra
+#     if extra_delta > 0:
+#         update_customer_balance(instance.customer_name, extra_delta)
+#         return create_transaction_row(
+#             instance=instance,
+#             modelname=get_extra_payment_modelname(instance),
+#             amount=extra_delta,
+#             due_amount=Decimal("0"),
+#         )
+
+#     # later day extra reduced -> do not touch old history row
+#     return latest_extra_tx
+
+
+# # =========================================================
+# # PRE SAVE - STORE OLD VALUES
+# # =========================================================
+
+# @receiver(pre_save, sender=Installment)
+# def store_old_installment_values(sender, instance, **kwargs):
+#     if not instance.pk:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+#         return
+
+#     try:
+#         old_instance = Installment.objects.get(pk=instance.pk)
+#         instance._old_status = old_instance.installment_status
+#         instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+#         instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+#     except Installment.DoesNotExist:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+
+
+# # =========================================================
+# # MAIN SIGNAL
+# # =========================================================
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     """
+#     installment_pay is treated as cumulative total paid for that installment
+#     """
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if instance.installment_pay is None:
+#         return
+
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+#     installment_amount = Decimal(str(instance.amount or 0))
+
+#     if old_pay == new_pay:
+#         return
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     new_actual_paid = min(new_pay, installment_amount)
+#     remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
+
+#     print("\n--- Installment Payment Update ---")
+#     print(f"Installment ID: {instance.id}")
+#     print(f"Loan ID: {instance.loan_id}")
+#     print(f"Old Pay: {old_pay}")
+#     print(f"New Pay: {new_pay}")
+#     print(f"Remaining Due: {remaining_due}")
+
+#     if instance.pay_from_account:
+#         try:
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+#             elif pay_diff < 0:
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+
+#             sync_installment_payment_transaction(
+#                 instance=instance,
+#                 old_pay=old_pay,
+#                 new_pay=new_pay,
+#                 from_account=True,
+#             )
+
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 old_pay=old_pay,
+#                 new_pay=new_pay,
+#             )
+
+#             if remaining_due <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0"),
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=remaining_due,
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount if old_due_amount is not None else installment_amount,
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         sync_installment_payment_transaction(
+#             instance=instance,
+#             old_pay=old_pay,
+#             new_pay=new_pay,
+#             from_account=False,
+#         )
+
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             old_pay=old_pay,
+#             new_pay=new_pay,
+#         )
+
+#         if remaining_due <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0"),
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=remaining_due,
+#             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+from decimal import Decimal
+from django.core.exceptions import ValidationError
+from django.db.models.signals import pre_save, post_save
+from django.dispatch import receiver
+from django.utils import timezone
+
+# =========================================================
+# MODEL NAME HELPERS
+# =========================================================
+
+def get_installment_modelname(instance, from_account=False):
+    base = "Installment Payment From Account" if from_account else "Installment Payment"
+    return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+def get_previous_installment_modelname(instance, from_account=False):
+    base = "Previous Installment Pay From Account" if from_account else "Previous Installment Pay"
+    return f"{base} | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+def get_extra_payment_modelname(instance):
+    return f"Extra Payment Savings | Loan: {instance.loan_id} | Installment ID: {instance.id}"
+
+
+# =========================================================
+# DATE HELPERS
+# =========================================================
+
+def is_same_day_transaction(tx):
+    if not tx:
+        return False
+
+    today = timezone.localdate()
+
+    if hasattr(tx, "date") and tx.date:
+        try:
+            return tx.date == today
+        except Exception:
+            pass
+
+    if hasattr(tx, "created_at") and tx.created_at:
+        try:
+            return tx.created_at.date() == today
+        except Exception:
+            pass
+
+    if hasattr(tx, "created") and tx.created:
+        try:
+            return tx.created.date() == today
+        except Exception:
+            pass
+
+    return False
+
+
+# =========================================================
+# QUERY HELPERS
+# =========================================================
+
+def transection_has_field(field_name):
+    try:
+        Transection._meta.get_field(field_name)
+        return True
+    except Exception:
+        return False
+
+
+def scope_transaction_queryset_to_installment(qs, instance):
+    if transection_has_field("loan_id"):
+        qs = qs.filter(loan_id=instance.loan_id)
     else:
-        modelname = f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
+        qs = qs.filter(modelname__icontains=f"Loan: {instance.loan_id}")
 
-    tx = get_existing_transaction(transaction_model, modelname)
+    if transection_has_field("installment_id"):
+        qs = qs.filter(installment_id=instance.id)
+    else:
+        qs = qs.filter(modelname__icontains=f"Installment ID: {instance.id}")
 
-    if payment_amount <= 0:
-        if tx:
-            tx.delete()
-        return None
+    return qs
 
-    if tx:
-        tx.amount = payment_amount
 
-        if hasattr(tx, "customer_name"):
-            tx.customer_name = instance.customer_name
+def get_installment_transactions(instance):
+    qs = Transection.objects.filter(customer_name=instance.customer_name)
+    qs = scope_transaction_queryset_to_installment(qs, instance)
 
-        if hasattr(tx, "received_by"):
-            tx.received_by = instance.received_by
+    qs = qs.filter(
+        modelname__iregex=r"^(Installment Payment|Installment Payment From Account|Previous Installment Pay|Previous Installment Pay From Account)"
+    )
 
-        if hasattr(tx, "transection_type"):
-            tx.transection_type = "cashin"
+    return qs.order_by("-id")
 
-        if hasattr(tx, "paid"):
-            tx.paid = True
 
-        if hasattr(tx, "paid_amount"):
-            tx.paid_amount = payment_amount
+def get_latest_installment_transaction(instance):
+    return get_installment_transactions(instance).first()
 
-        if hasattr(tx, "due_amount"):
-            tx.due_amount = Decimal("0")
 
-        tx.save()
-        return tx
+def get_extra_transactions(instance):
+    qs = Transection.objects.filter(customer_name=instance.customer_name)
+    qs = scope_transaction_queryset_to_installment(qs, instance)
+    qs = qs.filter(modelname__startswith="Extra Payment Savings")
+    return qs.order_by("-id")
+
+
+def get_latest_extra_transaction(instance):
+    return get_extra_transactions(instance).first()
+
+
+# =========================================================
+# COMMON FIELD SETTER
+# =========================================================
+
+def set_common_transaction_fields(tx, instance, modelname, amount, due_amount):
+    amount = Decimal(str(amount or 0))
+    due_amount = Decimal(str(due_amount or 0))
+
+    if hasattr(tx, "modelname"):
+        tx.modelname = modelname
+
+    if hasattr(tx, "customer_name"):
+        tx.customer_name = instance.customer_name
+
+    if hasattr(tx, "received_by"):
+        tx.received_by = instance.received_by
+
+    if hasattr(tx, "transection_type"):
+        tx.transection_type = "cashin"
+
+    if hasattr(tx, "amount"):
+        tx.amount = amount
+
+    if hasattr(tx, "paid"):
+        tx.paid = True
+
+    if hasattr(tx, "paid_amount"):
+        tx.paid_amount = amount
+
+    if hasattr(tx, "due_amount"):
+        tx.due_amount = due_amount
+
+    if transection_has_field("loan_id"):
+        tx.loan_id = instance.loan_id
+
+    if transection_has_field("installment_id"):
+        tx.installment_id = instance.id
+
+    return tx
+
+
+# =========================================================
+# CREATE / UPDATE TRANSACTION HELPERS
+# =========================================================
+
+def create_transaction_row(instance, modelname, amount, due_amount):
+    amount = Decimal(str(amount or 0))
+    due_amount = Decimal(str(due_amount or 0))
 
     tx = create_transaction_with_customer_info(
         instance.customer_name,
         transection_type="cashin",
-        amount=payment_amount,
+        amount=amount,
         customer_name=instance.customer_name,
         received_by=instance.received_by,
-        modelname=modelname
+        modelname=modelname,
     )
-    mark_transaction_as_paid(tx, payment_amount)
+
+    tx = set_common_transaction_fields(
+        tx=tx,
+        instance=instance,
+        modelname=modelname,
+        amount=amount,
+        due_amount=due_amount,
+    )
+    tx.save()
     return tx
 
 
-def sync_extra_payment_savings(instance, transaction_model, old_extra_amount, new_extra_amount):
+def update_transaction_row(tx, instance, modelname, amount, due_amount):
+    tx = set_common_transaction_fields(
+        tx=tx,
+        instance=instance,
+        modelname=modelname,
+        amount=amount,
+        due_amount=due_amount,
+    )
+    tx.save()
+    return tx
+
+
+# =========================================================
+# INSTALLMENT PAYMENT SYNC
+# =========================================================
+
+def sync_installment_payment_transaction(instance, old_pay, new_pay, from_account=False):
     """
-    Extra Payment Savings transaction + customer balance sync
+    Logic:
+    - first payment -> Installment Payment
+    - same day edit -> update same transaction
+    - later day increase -> create new Previous Installment Pay transaction
     """
-    old_extra_amount = Decimal(str(old_extra_amount or 0))
-    new_extra_amount = Decimal(str(new_extra_amount or 0))
+    installment_amount = Decimal(str(instance.amount or 0))
+    old_pay = Decimal(str(old_pay or 0))
+    new_pay = Decimal(str(new_pay or 0))
 
-    modelname = f"Extra Payment Savings : {instance.id})"
-    extra_tx = get_existing_transaction(transaction_model, modelname)
+    old_actual_paid = min(old_pay, installment_amount)
+    new_actual_paid = min(new_pay, installment_amount)
 
-    # old extra reverse from customer balance
-    if old_extra_amount > 0:
-        update_customer_balance(instance.customer_name, -old_extra_amount)
+    delta = new_actual_paid - old_actual_paid
+    remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
 
-    # if new extra = 0 -> delete old transaction
-    if new_extra_amount <= 0:
-        if extra_tx:
-            extra_tx.delete()
+    latest_tx = get_latest_installment_transaction(instance)
+
+    if new_actual_paid <= 0:
+        if latest_tx and is_same_day_transaction(latest_tx):
+            latest_tx.delete()
         return None
 
-    # apply new extra to customer balance
-    update_customer_balance(instance.customer_name, new_extra_amount)
+    if not latest_tx:
+        return create_transaction_row(
+            instance=instance,
+            modelname=get_installment_modelname(instance, from_account=from_account),
+            amount=new_actual_paid,
+            due_amount=remaining_due,
+        )
 
-    if extra_tx:
-        extra_tx.amount = new_extra_amount
+    if is_same_day_transaction(latest_tx):
+        current_amount = Decimal(str(getattr(latest_tx, "amount", 0) or 0))
+        updated_amount = current_amount + delta
 
-        if hasattr(extra_tx, "customer_name"):
-            extra_tx.customer_name = instance.customer_name
+        if updated_amount <= 0:
+            latest_tx.delete()
+            return None
 
-        if hasattr(extra_tx, "received_by"):
-            extra_tx.received_by = instance.received_by
+        return update_transaction_row(
+            tx=latest_tx,
+            instance=instance,
+            modelname=latest_tx.modelname,
+            amount=updated_amount,
+            due_amount=remaining_due,
+        )
 
-        if hasattr(extra_tx, "transection_type"):
-            extra_tx.transection_type = "cashin"
+    if delta > 0:
+        return create_transaction_row(
+            instance=instance,
+            modelname=get_previous_installment_modelname(instance, from_account=from_account),
+            amount=delta,
+            due_amount=remaining_due,
+        )
 
-        if hasattr(extra_tx, "paid"):
-            extra_tx.paid = True
+    return latest_tx
 
-        if hasattr(extra_tx, "paid_amount"):
-            extra_tx.paid_amount = new_extra_amount
 
-        if hasattr(extra_tx, "due_amount"):
-            extra_tx.due_amount = Decimal("0")
+# =========================================================
+# EXTRA PAYMENT SAVINGS SYNC
+# =========================================================
 
-        extra_tx.save()
-        return extra_tx
+def sync_extra_payment_savings(instance, old_pay, new_pay):
+    """
+    Extra amount = payment over installment amount
 
-    extra_tx = create_transaction_with_customer_info(
-        instance.customer_name,
-        transection_type="cashin",
-        amount=new_extra_amount,
-        customer_name=instance.customer_name,
-        received_by=instance.received_by,
-        modelname=modelname
-    )
-    mark_transaction_as_paid(extra_tx, new_extra_amount)
-    return extra_tx
+    Rules:
+    - same day extra create/update/delete
+    - later extra increase -> create new row
+    """
+    installment_amount = Decimal(str(instance.amount or 0))
+    old_pay = Decimal(str(old_pay or 0))
+    new_pay = Decimal(str(new_pay or 0))
 
+    old_extra = max(old_pay - installment_amount, Decimal("0"))
+    new_extra = max(new_pay - installment_amount, Decimal("0"))
+
+    latest_extra_tx = get_latest_extra_transaction(instance)
+
+    if latest_extra_tx and is_same_day_transaction(latest_extra_tx):
+        delta_balance = new_extra - old_extra
+
+        if delta_balance != 0:
+            update_customer_balance(instance.customer_name, delta_balance)
+
+        if new_extra <= 0:
+            latest_extra_tx.delete()
+            return None
+
+        return update_transaction_row(
+            tx=latest_extra_tx,
+            instance=instance,
+            modelname=get_extra_payment_modelname(instance),
+            amount=new_extra,
+            due_amount=Decimal("0"),
+        )
+
+    if new_extra > 0 and not latest_extra_tx:
+        update_customer_balance(instance.customer_name, new_extra)
+        return create_transaction_row(
+            instance=instance,
+            modelname=get_extra_payment_modelname(instance),
+            amount=new_extra,
+            due_amount=Decimal("0"),
+        )
+
+    extra_delta = new_extra - old_extra
+    if extra_delta > 0:
+        update_customer_balance(instance.customer_name, extra_delta)
+        return create_transaction_row(
+            instance=instance,
+            modelname=get_extra_payment_modelname(instance),
+            amount=extra_delta,
+            due_amount=Decimal("0"),
+        )
+
+    return latest_extra_tx
+
+
+# =========================================================
+# PRE SAVE - STORE OLD VALUES
+# =========================================================
+
+@receiver(pre_save, sender=Installment)
+def store_old_installment_values(sender, instance, **kwargs):
+    if not instance.pk:
+        instance._old_status = None
+        instance._old_pay = Decimal("0")
+        instance._old_due_amount = None
+        return
+
+    try:
+        old_instance = Installment.objects.get(pk=instance.pk)
+        instance._old_status = old_instance.installment_status
+        instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+        instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+    except Installment.DoesNotExist:
+        instance._old_status = None
+        instance._old_pay = Decimal("0")
+        instance._old_due_amount = None
+
+
+# =========================================================
+# MAIN SIGNAL
+# =========================================================
 
 @receiver(post_save, sender=Installment)
 def handle_installment_payment(sender, instance, created, **kwargs):
     """
-    Installment payment update logic:
-    - main transaction update
-    - extra savings transaction update/delete
-    - customer balance reverse/apply correctly
+    installment_pay is treated as cumulative total paid for that installment
     """
     if created:
         return
 
     old_status = getattr(instance, "_old_status", None)
-    old_pay = getattr(instance, "_old_pay", None)
+    old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
     old_due_amount = getattr(instance, "_old_due_amount", None)
 
-    if not (old_pay != instance.installment_pay and instance.installment_pay is not None):
+    if instance.installment_pay is None:
         return
 
-    print(f"\n--- Installment Payment: ID {instance.id} ---")
-
-    installment_amount = Decimal(str(instance.amount or 0))
     new_pay = Decimal(str(instance.installment_pay or 0))
-    old_pay = Decimal(str(old_pay or 0))
-    current_due = Decimal(str(instance.due_amount or installment_amount))
+    installment_amount = Decimal(str(instance.amount or 0))
+
+    if old_pay == new_pay:
+        return
 
     if new_pay < 0:
         raise ValidationError("Payment cannot be negative")
 
-    old_actual_payment = min(old_pay, installment_amount)
-    new_actual_payment = min(new_pay, installment_amount)
+    new_actual_paid = min(new_pay, installment_amount)
+    remaining_due = max(installment_amount - new_actual_paid, Decimal("0"))
 
-    old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
-    new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
-
-    print(
-        f"Old Pay: {old_pay:.2f}, New Pay: {new_pay:.2f}, "
-        f"Old Extra: {old_extra_amount:.2f}, New Extra: {new_extra_amount:.2f}"
-    )
+    print("\n--- Installment Payment Update ---")
+    print(f"Installment ID: {instance.id}")
+    print(f"Loan ID: {instance.loan_id}")
+    print(f"Old Pay: {old_pay}")
+    print(f"New Pay: {new_pay}")
+    print(f"Remaining Due: {remaining_due}")
 
     if instance.pay_from_account:
-        print("Pay from account enabled - processing account deduction...")
-
         try:
-            # only deduct the difference from account
             pay_diff = new_pay - old_pay
 
             if pay_diff > 0:
                 check_and_deduct_balance(
                     instance.customer_name,
                     pay_diff,
-                    f"Installment Payment Update ID: {instance.id}"
+                    f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
                 )
-                print(f"✓ Deducted extra {pay_diff:.2f} from account")
-
             elif pay_diff < 0:
-                # refund account if payment reduced
                 update_customer_balance(instance.customer_name, abs(pay_diff))
-                print(f"✓ Refunded {abs(pay_diff):.2f} to account")
 
-            # get transaction model from existing/created tx
-            tx_model = None
-
-            sample_tx_name = f"Installment Payment from Account : {instance.id}, Loan: {instance.loan_id})"
-            existing_tx = create_transaction_with_customer_info(
-                instance.customer_name,
-                transection_type="cashin",
-                amount=new_actual_payment,
-                customer_name=instance.customer_name,
-                received_by=instance.received_by,
-                modelname=sample_tx_name
-            )
-            tx_model = existing_tx.__class__
-
-            # delete the just-created duplicate if old one exists situation happens
-            # safer approach: use existing transaction after getting model
-            duplicate_check = tx_model.objects.filter(modelname=sample_tx_name).order_by("-id")
-            if duplicate_check.count() > 1:
-                duplicate_check.first().delete()
-
-            # main transaction sync
-            sync_main_installment_transaction(
+            sync_installment_payment_transaction(
                 instance=instance,
-                transaction_model=tx_model,
-                payment_amount=new_actual_payment,
-                from_account=True
+                old_pay=old_pay,
+                new_pay=new_pay,
+                from_account=True,
             )
 
-            # extra transaction sync
             sync_extra_payment_savings(
                 instance=instance,
-                transaction_model=tx_model,
-                old_extra_amount=old_extra_amount,
-                new_extra_amount=new_extra_amount
+                old_pay=old_pay,
+                new_pay=new_pay,
             )
 
-            new_due_amount = installment_amount - new_actual_payment
-
-            if new_due_amount <= 0:
+            if remaining_due <= 0:
                 Installment.objects.filter(pk=instance.pk).update(
                     installment_status="paid",
-                    due_amount=Decimal("0")
+                    due_amount=Decimal("0"),
                 )
             else:
                 Installment.objects.filter(pk=instance.pk).update(
                     installment_status="due",
-                    due_amount=new_due_amount
+                    due_amount=remaining_due,
                 )
 
         except InsufficientBalanceError as e:
             Installment.objects.filter(pk=instance.pk).update(
                 installment_pay=old_pay,
                 installment_status=old_status,
-                due_amount=old_due_amount
+                due_amount=old_due_amount if old_due_amount is not None else installment_amount,
             )
             raise ValidationError(str(e))
 
     else:
-        # create one tx only to get model class
-        temp_tx = create_transaction_with_customer_info(
-            instance.customer_name,
-            transection_type="cashin",
-            amount=new_actual_payment,
-            customer_name=instance.customer_name,
-            received_by=instance.received_by,
-            modelname=f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
-        )
-        tx_model = temp_tx.__class__
-
-        # remove duplicate temp create if exists
-        duplicate_check = tx_model.objects.filter(
-            modelname=f"Installment Payment : {instance.id}, Loan: {instance.loan_id})"
-        ).order_by("-id")
-        if duplicate_check.count() > 1:
-            duplicate_check.first().delete()
-
-        # main transaction sync
-        sync_main_installment_transaction(
+        sync_installment_payment_transaction(
             instance=instance,
-            transaction_model=tx_model,
-            payment_amount=new_actual_payment,
-            from_account=False
+            old_pay=old_pay,
+            new_pay=new_pay,
+            from_account=False,
         )
 
-        # extra savings sync
         sync_extra_payment_savings(
             instance=instance,
-            transaction_model=tx_model,
-            old_extra_amount=old_extra_amount,
-            new_extra_amount=new_extra_amount
+            old_pay=old_pay,
+            new_pay=new_pay,
         )
 
-        new_due_amount = installment_amount - new_actual_payment
-
-        if new_due_amount <= 0:
+        if remaining_due <= 0:
             Installment.objects.filter(pk=instance.pk).update(
                 installment_status="paid",
-                due_amount=Decimal("0")
+                due_amount=Decimal("0"),
             )
         else:
             Installment.objects.filter(pk=instance.pk).update(
                 installment_status="due",
-                due_amount=new_due_amount
+                due_amount=remaining_due,
             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# from decimal import Decimal
+# from django.core.exceptions import ValidationError
+# from django.db.models.signals import post_save, pre_save
+# from django.dispatch import receiver
+
+# # =========================================================
+# # MODELNAME HELPERS
+# # =========================================================
+
+# def get_installment_payment_modelname(from_account=False):
+#     return "Installment Payment From Account" if from_account else "Installment Payment"
+
+
+# def get_extra_payment_savings_modelname():
+#     return "Extra Payment Savings"
+
+
+# # =========================================================
+# # QUERY HELPERS
+# # =========================================================
+
+# def get_existing_installment_transaction(instance, from_account=False):
+#     modelname = get_installment_payment_modelname(from_account)
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname,
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# def get_existing_extra_transaction(instance):
+#     modelname = get_extra_payment_savings_modelname()
+
+#     qs = Transection.objects.filter(
+#         customer_name=instance.customer_name,
+#         modelname=modelname,
+#     )
+
+#     if hasattr(Transection, "loan_id"):
+#         qs = qs.filter(loan_id=instance.loan_id)
+
+#     if hasattr(Transection, "installment_id"):
+#         qs = qs.filter(installment_id=instance.id)
+
+#     return qs.order_by("-id").first()
+
+
+# # =========================================================
+# # FIELD ASSIGN HELPERS
+# # =========================================================
+
+# def assign_main_transaction_fields(tx, instance, amount, from_account=False):
+#     amount = Decimal(str(amount or 0))
+#     installment_amount = Decimal(str(instance.amount or 0))
+#     due_amount = max(installment_amount - amount, Decimal("0"))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_installment_payment_modelname(from_account)
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = due_amount
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# def assign_extra_transaction_fields(tx, instance, amount):
+#     amount = Decimal(str(amount or 0))
+
+#     if hasattr(tx, "modelname"):
+#         tx.modelname = get_extra_payment_savings_modelname()
+
+#     if hasattr(tx, "customer_name"):
+#         tx.customer_name = instance.customer_name
+
+#     if hasattr(tx, "received_by"):
+#         tx.received_by = instance.received_by
+
+#     if hasattr(tx, "transection_type"):
+#         tx.transection_type = "cashin"
+
+#     if hasattr(tx, "amount"):
+#         tx.amount = amount
+
+#     if hasattr(tx, "paid"):
+#         tx.paid = True
+
+#     if hasattr(tx, "paid_amount"):
+#         tx.paid_amount = amount
+
+#     if hasattr(tx, "due_amount"):
+#         tx.due_amount = Decimal("0")
+
+#     if hasattr(tx, "loan_id"):
+#         tx.loan_id = instance.loan_id
+
+#     if hasattr(tx, "installment_id"):
+#         tx.installment_id = instance.id
+
+#     return tx
+
+
+# # =========================================================
+# # CREATE HELPERS
+# # =========================================================
+
+# def create_installment_transaction(instance, amount, from_account=False):
+#     amount = Decimal(str(amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_installment_payment_modelname(from_account),
+#     )
+
+#     tx = assign_main_transaction_fields(tx, instance, amount, from_account)
+#     tx.save()
+
+#     # mark_transaction_as_paid(tx, amount)  <-- এটা main transaction এ আর use করবে না
+#     return tx
+
+
+# def create_extra_transaction(instance, amount):
+#     amount = Decimal(str(amount or 0))
+
+#     tx = create_transaction_with_customer_info(
+#         instance.customer_name,
+#         transection_type="cashin",
+#         amount=amount,
+#         customer_name=instance.customer_name,
+#         received_by=instance.received_by,
+#         modelname=get_extra_payment_savings_modelname(),
+#     )
+
+#     tx = assign_extra_transaction_fields(tx, instance, amount)
+#     tx.save()
+#     return tx
+
+
+# # =========================================================
+# # SYNC HELPERS
+# # =========================================================
+
+# def sync_main_installment_transaction(instance, payment_amount, from_account=False):
+#     payment_amount = Decimal(str(payment_amount or 0))
+#     tx = get_existing_installment_transaction(instance, from_account=from_account)
+
+#     if payment_amount <= 0:
+#         if tx:
+#             tx.delete()
+#         return None
+
+#     if tx:
+#         tx = assign_main_transaction_fields(
+#             tx=tx,
+#             instance=instance,
+#             amount=payment_amount,
+#             from_account=from_account,
+#         )
+#         tx.save()
+#         return tx
+
+#     return create_installment_transaction(
+#         instance=instance,
+#         amount=payment_amount,
+#         from_account=from_account,
+#     )
+
+
+# def sync_extra_payment_savings(instance, old_extra_amount, new_extra_amount):
+#     old_extra_amount = Decimal(str(old_extra_amount or 0))
+#     new_extra_amount = Decimal(str(new_extra_amount or 0))
+
+#     extra_tx = get_existing_extra_transaction(instance)
+
+#     if old_extra_amount > 0:
+#         update_customer_balance(instance.customer_name, -old_extra_amount)
+
+#     if new_extra_amount <= 0:
+#         if extra_tx:
+#             extra_tx.delete()
+#         return None
+
+#     update_customer_balance(instance.customer_name, new_extra_amount)
+
+#     if extra_tx:
+#         extra_tx = assign_extra_transaction_fields(
+#             tx=extra_tx,
+#             instance=instance,
+#             amount=new_extra_amount,
+#         )
+#         extra_tx.save()
+#         return extra_tx
+
+#     return create_extra_transaction(instance, new_extra_amount)
+
+
+# # =========================================================
+# # PRE SAVE
+# # =========================================================
+
+# @receiver(pre_save, sender=Installment)
+# def store_old_installment_values(sender, instance, **kwargs):
+#     if not instance.pk:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+#         return
+
+#     try:
+#         old_instance = Installment.objects.get(pk=instance.pk)
+#         instance._old_status = old_instance.installment_status
+#         instance._old_pay = Decimal(str(old_instance.installment_pay or 0))
+#         instance._old_due_amount = Decimal(str(old_instance.due_amount or 0))
+#     except Installment.DoesNotExist:
+#         instance._old_status = None
+#         instance._old_pay = Decimal("0")
+#         instance._old_due_amount = None
+
+
+# # =========================================================
+# # MAIN SIGNAL
+# # =========================================================
+
+# @receiver(post_save, sender=Installment)
+# def handle_installment_payment(sender, instance, created, **kwargs):
+#     if created:
+#         return
+
+#     old_status = getattr(instance, "_old_status", None)
+#     old_pay = Decimal(str(getattr(instance, "_old_pay", 0) or 0))
+#     old_due_amount = getattr(instance, "_old_due_amount", None)
+
+#     if instance.installment_pay is None:
+#         return
+
+#     new_pay = Decimal(str(instance.installment_pay or 0))
+
+#     if old_pay == new_pay:
+#         return
+
+#     installment_amount = Decimal(str(instance.amount or 0))
+
+#     if new_pay < 0:
+#         raise ValidationError("Payment cannot be negative")
+
+#     old_actual_payment = min(old_pay, installment_amount)
+#     new_actual_payment = min(new_pay, installment_amount)
+
+#     old_extra_amount = max(old_pay - installment_amount, Decimal("0"))
+#     new_extra_amount = max(new_pay - installment_amount, Decimal("0"))
+
+#     if instance.pay_from_account:
+#         try:
+#             pay_diff = new_pay - old_pay
+
+#             if pay_diff > 0:
+#                 check_and_deduct_balance(
+#                     instance.customer_name,
+#                     pay_diff,
+#                     f"Installment Payment Update ID: {instance.id}, Loan: {instance.loan_id}"
+#                 )
+#             elif pay_diff < 0:
+#                 update_customer_balance(instance.customer_name, abs(pay_diff))
+
+#             sync_main_installment_transaction(
+#                 instance=instance,
+#                 payment_amount=new_actual_payment,
+#                 from_account=True,
+#             )
+
+#             sync_extra_payment_savings(
+#                 instance=instance,
+#                 old_extra_amount=old_extra_amount,
+#                 new_extra_amount=new_extra_amount,
+#             )
+
+#             new_due_amount = max(installment_amount - new_actual_payment, Decimal("0"))
+
+#             if new_due_amount <= 0:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="paid",
+#                     due_amount=Decimal("0"),
+#                 )
+#             else:
+#                 Installment.objects.filter(pk=instance.pk).update(
+#                     installment_status="due",
+#                     due_amount=new_due_amount,
+#                 )
+
+#         except InsufficientBalanceError as e:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_pay=old_pay,
+#                 installment_status=old_status,
+#                 due_amount=old_due_amount if old_due_amount is not None else installment_amount,
+#             )
+#             raise ValidationError(str(e))
+
+#     else:
+#         sync_main_installment_transaction(
+#             instance=instance,
+#             payment_amount=new_actual_payment,
+#             from_account=False,
+#         )
+
+#         sync_extra_payment_savings(
+#             instance=instance,
+#             old_extra_amount=old_extra_amount,
+#             new_extra_amount=new_extra_amount,
+#         )
+
+#         new_due_amount = max(installment_amount - new_actual_payment, Decimal("0"))
+
+#         if new_due_amount <= 0:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="paid",
+#                 due_amount=Decimal("0"),
+#             )
+#         else:
+#             Installment.objects.filter(pk=instance.pk).update(
+#                 installment_status="due",
+#                 due_amount=new_due_amount,
+#             )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3836,35 +6806,35 @@ def handle_installment_payment(sender, instance, created, **kwargs):
 #                 else:
 #                     extra_tx = create_transaction_with_customer_info(
 #                         instance.customer_name,
-#                         transection_type="cashin",
-#                         amount=extra_amount,
-#                         customer_name=instance.customer_name,
-#                         received_by=instance.received_by,
-#                         modelname=extra_modelname
-#                     )
+    #                     transection_type="cashin",
+    #                     amount=extra_amount,
+    #                     customer_name=instance.customer_name,
+    #                     received_by=instance.received_by,
+    #                     modelname=extra_modelname
+    #                 )
 
-#                 mark_transaction_as_paid(extra_tx, extra_amount)
+    #             mark_transaction_as_paid(extra_tx, extra_amount)
 
-#         except InsufficientBalanceError as e:
-#             Installment.objects.filter(pk=instance.pk).update(
-#                 installment_pay=old_pay,
-#                 installment_status=old_status,
-#                 due_amount=old_due_amount
-#             )
-#             raise ValidationError(str(e))
+    #     except InsufficientBalanceError as e:
+    #         Installment.objects.filter(pk=instance.pk).update(
+    #             installment_pay=old_pay,
+    #             installment_status=old_status,
+    #             due_amount=old_due_amount
+    #         )
+    #         raise ValidationError(str(e))
 
-#     else:
-#         main_modelname = f"Installment Payment : {instance.id}, Loan: {instance.loan_id}"
+    # else:
+    #     main_modelname = f"Installment Payment : {instance.id}, Loan: {instance.loan_id}"
 
-#         transaction_obj = Transection.objects.filter(
-#             customer_name=instance.customer_name,
-#             modelname=main_modelname
-#         ).first()
+    #     transaction_obj = Transection.objects.filter(
+    #         customer_name=instance.customer_name,
+    #         modelname=main_modelname
+    #     ).first()
 
-#         if transaction_obj:
-#             transaction_obj.transection_type = "cashin"
-#             transaction_obj.amount = instance.amount
-#             transaction_obj.customer_name = instance.customer_name
+    #     if transaction_obj:
+    #         transaction_obj.transection_type = "cashin"
+    #         transaction_obj.amount = instance.amount
+    #         transaction_obj.customer_name = instance.customer_name
 #             transaction_obj.received_by = instance.received_by
 #             transaction_obj.modelname = main_modelname
 #         else:
@@ -4024,41 +6994,1046 @@ def handle_installment_payment(sender, instance, created, **kwargs):
 
 
 
-from django.db.models.signals import m2m_changed
+# from django.db.models.signals import m2m_changed
+# from django.dispatch import receiver
+# from django.db import transaction
+
+# @receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+# def purchase_items_added(sender, instance, action, pk_set, **kwargs):
+#     """
+#     When Purchase.purchaseitem is changed (items added),
+#     update stock and attach unick keys to Variation for isunck=True variations.
+#     """
+
+#     # ✅ only after items are added
+#     if action != "post_add":
+#         return
+
+#     # pk_set = which PurchaseItem IDs were newly added
+#     if not pk_set:
+#         return
+
+#     # ✅ Fetch only newly added items
+#     items = PurchaseItem.objects.select_related("purchase_product_variation").filter(pk__in=pk_set)
+
+#     # ✅ transaction safety (optional but good)
+#     with transaction.atomic():
+#         for item in items:
+#             variation = item.purchase_product_variation
+#             if not variation:
+#                 continue
+
+#             # ✅ Increase stock
+#             variation.quantity += item.qty
+#             variation.save(update_fields=["quantity"])
+
+#             # ✅ Attach unick keys if variation.isunck
+#             if getattr(variation, "isunck", False):
+#                 keys = item.unickkey.all()
+#                 if keys.exists():
+#                     variation.unickkey.add(*keys)
+
+
+
+
+
+
+# from django.db.models.signals import pre_save, post_save, post_delete, m2m_changed
+# from django.dispatch import receiver
+# from django.db import transaction
+
+
+# # ─── helpers ──────────────────────────────────────────────────────────────────
+
+# def _get_old_instance(instance):
+#     """Return the DB-saved version of instance, or None if it's new."""
+#     if not instance.pk:
+#         return None
+#     try:
+#         return instance.__class__.objects.get(pk=instance.pk)
+#     except instance.__class__.DoesNotExist:
+#         return None
+
+
+# def _current_unick_ids(purchase_item_instance):
+#     """IDs of unickkeys already attached to this PurchaseItem in the DB."""
+#     if not purchase_item_instance.pk:
+#         return set()
+#     return set(
+#         purchase_item_instance.unickkey.values_list("id", flat=True)
+#     )
+
+
+# # ─── PurchaseItem: stash old state before save ────────────────────────────────
+
+# @receiver(pre_save, sender=PurchaseItem)
+# def purchaseitem_pre_save(sender, instance, **kwargs):
+#     """
+#     Before saving, snapshot the old qty and soft-delete flag so
+#     post_save can compute the diff.
+#     """
+#     old = _get_old_instance(instance)
+
+#     if old is None:
+#         # Brand-new item — no prior state
+#         instance._old_qty = 0
+#         instance._old_is_deleted = False
+#         instance._is_new = True
+#     else:
+#         instance._old_qty = old.qty
+#         instance._old_is_deleted = bool(getattr(old, "is_deleted", False))
+#         instance._is_new = False
+
+
+# # ─── PurchaseItem: update variation stock after save ─────────────────────────
+
+# @receiver(post_save, sender=PurchaseItem)
+# def purchaseitem_post_save(sender, instance, created, **kwargs):
+#     """
+#     After a PurchaseItem is saved (create OR update), keep Variation.quantity
+#     in sync by applying only the *delta*.
+
+#     Cases handled:
+#       • New item (created=True)        → add full qty to variation
+#       • Qty changed                    → add/subtract the diff
+#       • Soft-deleted (is_deleted=True) → reverse the item's full qty
+#       • Un-soft-deleted                → re-apply the qty
+#     """
+#     variation = instance.purchase_product_variation
+#     if not variation:
+#         return
+
+#     is_now_deleted = bool(getattr(instance, "is_deleted", False))
+#     old_is_deleted = getattr(instance, "_old_is_deleted", False)
+#     old_qty = getattr(instance, "_old_qty", 0)
+#     new_qty = instance.qty
+
+#     with transaction.atomic():
+#         # Re-fetch variation inside the transaction to get a fresh lock
+#         from django.db.models import F
+#         variation.__class__.objects.filter(pk=variation.pk).update(
+#             quantity=_compute_new_qty(
+#                 variation.__class__.objects.get(pk=variation.pk).quantity,
+#                 old_qty=old_qty,
+#                 new_qty=new_qty,
+#                 was_deleted=old_is_deleted,
+#                 is_deleted=is_now_deleted,
+#                 is_new=getattr(instance, "_is_new", False),
+#             )
+#         )
+
+
+# def _compute_new_qty(current_stock, old_qty, new_qty, was_deleted, is_deleted, is_new):
+#     """
+#     Pure function — easier to unit-test separately.
+
+#     is_new          → stock += new_qty
+#     just deleted    → stock -= old_qty  (reverse contribution)
+#     just undeleted  → stock += new_qty  (re-apply contribution)
+#     qty changed     → stock += (new_qty - old_qty)
+#     """
+#     if is_new:
+#         return current_stock + new_qty
+
+#     if is_deleted and not was_deleted:
+#         # Item just got soft-deleted → reverse old qty
+#         return current_stock - old_qty
+
+#     if not is_deleted and was_deleted:
+#         # Item just got un-soft-deleted → apply new qty
+#         return current_stock + new_qty
+
+#     if is_deleted and was_deleted:
+#         # Already deleted, saved again — no change
+#         return current_stock
+
+#     # Normal update: apply only the diff
+#     return current_stock + (new_qty - old_qty)
+
+
+# # ─── PurchaseItem: handle hard delete ────────────────────────────────────────
+
+# @receiver(post_delete, sender=PurchaseItem)
+# def purchaseitem_post_delete(sender, instance, **kwargs):
+#     """
+#     If a PurchaseItem is hard-deleted, reverse its qty contribution
+#     and remove its unick keys from the variation.
+#     """
+#     variation = instance.purchase_product_variation
+#     if not variation:
+#         return
+
+#     with transaction.atomic():
+#         variation.__class__.objects.filter(pk=variation.pk).update(
+#             quantity=variation.__class__.objects.get(pk=variation.pk).quantity - instance.qty
+#         )
+
+#         if getattr(variation, "isunck", False):
+#             keys = instance.unickkey.all()
+#             if keys.exists():
+#                 variation.unickkey.remove(*keys)
+
+
+# # ─── PurchaseItem.unickkey M2M: sync keys onto Variation ─────────────────────
+
+# @receiver(m2m_changed, sender=PurchaseItem.unickkey.through)
+# def purchaseitem_unickkey_changed(sender, instance, action, pk_set, **kwargs):
+#     """
+#     When unick keys are added/removed on a PurchaseItem,
+#     mirror that change onto the related Variation (if isunck=True).
+#     """
+#     variation = instance.purchase_product_variation
+#     if not variation or not getattr(variation, "isunck", False):
+#         return
+
+#     if not pk_set:
+#         return
+
+#     with transaction.atomic():
+#         if action == "post_add":
+#             variation.unickkey.add(*pk_set)
+
+#         elif action == "post_remove":
+#             variation.unickkey.remove(*pk_set)
+
+#         elif action == "post_clear":
+#             # All keys cleared from this purchase item
+#             # Only remove keys that no OTHER PurchaseItem also holds for this variation
+#             other_key_ids = set(
+#                 PurchaseItem.objects.filter(
+#                     purchase_product_variation=variation
+#                 ).exclude(
+#                     pk=instance.pk
+#                 ).values_list("unickkey__id", flat=True)
+#             )
+#             # Remove only keys not referenced by other items
+#             keys_to_remove = set(
+#                 variation.unickkey.values_list("id", flat=True)
+#             ) - other_key_ids
+
+#             if keys_to_remove:
+#                 variation.unickkey.remove(*keys_to_remove)
+
+
+# # ─── Purchase.purchaseitem M2M: handle bulk attach/detach ─────────────────────
+# # (Keep your existing signal but guard against double-counting —
+# #  PurchaseItem post_save already ran when the item was created/saved.
+# #  This signal is now only useful when an *existing* item is linked to
+# #  a *different* Purchase, which is rare. You can keep it or remove it.)
+
+# @receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+# def purchase_items_added(sender, instance, action, pk_set, **kwargs):
+#     """
+#     Only act when an already-existing PurchaseItem is attached to a Purchase
+#     for the first time (edge case). Skip brand-new items — post_save handles them.
+#     """
+#     if action != "post_add" or not pk_set:
+#         return
+
+#     # Only process items that were already in DB before this M2M link
+#     # (i.e. not just created in the same request)
+#     items = PurchaseItem.objects.select_related(
+#         "purchase_product_variation"
+#     ).filter(pk__in=pk_set)
+
+#     with transaction.atomic():
+#         for item in items:
+#             variation = item.purchase_product_variation
+#             if not variation:
+#                 continue
+
+#             # Check if this variation's stock was already updated by post_save
+#             # by checking if the item was JUST created (no purchase linked yet)
+#             already_counted = not Purchase.objects.filter(
+#                 purchaseitem=item
+#             ).exclude(pk=instance.pk).exists()
+
+#             if already_counted:
+#                 # post_save already ran — skip to avoid double-counting
+#                 continue
+
+#             variation.quantity += item.qty
+#             variation.save(update_fields=["quantity"])
+
+#             if getattr(variation, "isunck", False):
+#                 keys = item.unickkey.all()
+#                 if keys.exists():
+#                     variation.unickkey.add(*keys)
+
+
+
+
+
+
+
+
+
+# signals.py
+# from django.db.models.signals import pre_save, post_save, post_delete, m2m_changed
+# from django.dispatch import receiver
+# from django.db import transaction
+
+
+# # ════════════════════════════════════════════════════════
+# # HELPER
+# # ════════════════════════════════════════════════════════
+
+# def _get_old(instance):
+#     if not instance.pk:
+#         return None
+#     try:
+#         return instance.__class__.objects.get(pk=instance.pk)
+#     except instance.__class__.DoesNotExist:
+#         return None
+
+
+# def _compute_stock(current, old_qty, new_qty, was_deleted, is_deleted, is_new):
+#     if is_new:
+#         return current + new_qty
+#     if is_deleted and not was_deleted:
+#         return current - old_qty          # এইমাত্র soft-delete হয়েছে
+#     if not is_deleted and was_deleted:
+#         return current + new_qty          # restore হয়েছে
+#     if is_deleted and was_deleted:
+#         return current                    # already deleted, no change
+#     return current + (new_qty - old_qty)  # normal qty change — delta only
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 1 — PurchaseItem pre_save
+# # পুরনো state snapshot
+# # ════════════════════════════════════════════════════════
+
+# @receiver(pre_save, sender=PurchaseItem)
+# def purchaseitem_pre_save(sender, instance, **kwargs):
+#     old = _get_old(instance)
+#     if old is None:
+#         instance._old_qty        = 0
+#         instance._old_is_deleted = False
+#         instance._is_new         = True
+#         # ✅ NEW: পুরনো unick key ids snapshot করো
+#         instance._old_unick_ids  = set()
+#     else:
+#         instance._old_qty        = old.qty
+#         instance._old_is_deleted = bool(getattr(old, 'is_deleted', False))
+#         instance._is_new         = False
+#         # ✅ NEW: existing item এর current unick keys snapshot
+#         instance._old_unick_ids  = set(old.unickkey.values_list('id', flat=True))
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 2 — PurchaseItem post_save
+# # qty delta apply করো variation-এ
+# # ════════════════════════════════════════════════════════
+
+# @receiver(post_save, sender=PurchaseItem)
+# def purchaseitem_post_save(sender, instance, created, **kwargs):
+#     variation = instance.purchase_product_variation
+#     if not variation:
+#         return
+
+#     is_now_deleted = bool(getattr(instance, 'is_deleted', False))
+#     old_is_deleted = getattr(instance, '_old_is_deleted', False)
+#     old_qty        = getattr(instance, '_old_qty', 0)
+
+#     with transaction.atomic():
+#         fresh = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+#         new_stock = _compute_stock(
+#             current    = fresh.quantity,
+#             old_qty    = old_qty,
+#             new_qty    = instance.qty,
+#             was_deleted= old_is_deleted,
+#             is_deleted = is_now_deleted,
+#             is_new     = getattr(instance, '_is_new', False),
+#         )
+#         variation.__class__.objects.filter(pk=variation.pk).update(quantity=new_stock)
+
+#     # ✅ NEW: unick key sync — post_save এর পরে M2M টা already set হয়েছে
+#     # তাই এখানে sync করা নিরাপদ
+#     # কিন্তু M2M signal আলাদাভাবে handle করা ভালো (Signal 4 দেখো)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 3 — PurchaseItem post_delete
+# # hard delete হলে stock reverse করো
+# # ════════════════════════════════════════════════════════
+
+# @receiver(post_delete, sender=PurchaseItem)
+# def purchaseitem_post_delete(sender, instance, **kwargs):
+#     variation = instance.purchase_product_variation
+#     if not variation:
+#         return
+
+#     with transaction.atomic():
+#         fresh = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+#         variation.__class__.objects.filter(pk=variation.pk).update(
+#             quantity=max(0, fresh.quantity - instance.qty)
+#         )
+
+#         # ✅ variation থেকে এই item এর unick keys সরাও
+#         if getattr(variation, 'isunck', False):
+#             keys = list(instance.unickkey.all())
+#             if keys:
+#                 # অন্য purchase item ব্যবহার করছে না এমন keys সরাও
+#                 _safe_remove_unick_keys(variation, instance.pk, keys)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 4 — PurchaseItem.unickkey M2M changed
+# # ✅ KEY FIX: add/remove/clear সব handle করো
+# # ════════════════════════════════════════════════════════
+
+# @receiver(m2m_changed, sender=PurchaseItem.unickkey.through)
+# def purchaseitem_unickkey_changed(sender, instance, action, pk_set, **kwargs):
+#     """
+#     PurchaseItem.unickkey change হলে Variation.unickkey-তেও mirror করো।
+    
+#     ✅ IMPORTANT: Django M2M .set() করলে এই sequence হয়:
+#         1. post_remove (পুরনো keys)
+#         2. post_add (নতুন keys)
+#     তাই আমরা শুধু post_add এবং post_remove handle করলেই হবে।
+#     """
+#     variation = instance.purchase_product_variation
+#     if not variation or not getattr(variation, 'isunck', False):
+#         return
+
+#     if not pk_set and action not in ('post_clear',):
+#         return
+
+#     with transaction.atomic():
+#         variation_obj = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+
+#         if action == 'post_add':
+#             # ✅ নতুন keys variation-এ add করো
+#             variation_obj.unickkey.add(*pk_set)
+
+#         elif action == 'post_remove':
+#             # ✅ শুধু সেই keys সরাও যেগুলো অন্য কোনো active PurchaseItem ব্যবহার করছে না
+#             _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, pk_set)
+
+#         elif action == 'post_clear':
+#             # ✅ এই item এর সব keys সরাও (safe way)
+#             all_item_key_ids = set(instance.unickkey.values_list('id', flat=True))
+#             if all_item_key_ids:
+#                 _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, all_item_key_ids)
+
+
+# def _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids_to_remove):
+#     """
+#     variation থেকে key_ids_to_remove গুলো সরাও,
+#     কিন্তু যেগুলো অন্য active PurchaseItem-এও আছে সেগুলো রাখো।
+#     """
+#     if not key_ids_to_remove:
+#         return
+
+#     # অন্য active items যে keys ব্যবহার করছে
+#     other_key_ids = set(
+#         PurchaseItem.objects.filter(
+#             purchase_product_variation=variation,
+#             is_deleted=False,
+#         ).exclude(
+#             pk=exclude_item_pk
+#         ).values_list('unickkey__id', flat=True)
+#     )
+
+#     # safely removable = remove করতে চাই - অন্যরা ব্যবহার করছে না এমন
+#     safely_removable = set(key_ids_to_remove) - other_key_ids
+
+#     if safely_removable:
+#         variation.unickkey.remove(*safely_removable)
+
+
+# def _safe_remove_unick_keys(variation, exclude_item_pk, keys):
+#     key_ids = {k.id for k in keys}
+#     _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 5 — Purchase.purchaseitem M2M changed
+# # ✅ Double-count guard সহ
+# # ════════════════════════════════════════════════════════
+
+# @receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+# def purchase_purchaseitem_m2m_changed(sender, instance, action, pk_set, **kwargs):
+#     """
+#     Purchase.purchaseitem M2M-এ নতুন item link হলে।
+#     post_save (Signal 2) already qty update করেছে নতুন item-এর জন্য।
+#     এখানে শুধু existing item যা নতুন purchase-এ link হচ্ছে সেটা handle করো।
+#     """
+#     if action != 'post_add' or not pk_set:
+#         return
+
+#     items = PurchaseItem.objects.select_related(
+#         'purchase_product_variation'
+#     ).filter(pk__in=pk_set, is_deleted=False)
+
+#     with transaction.atomic():
+#         for item in items:
+#             variation = item.purchase_product_variation
+#             if not variation:
+#                 continue
+
+#             # ✅ Double-count guard:
+#             # এই item কি অন্য কোনো Purchase-এও আছে?
+#             # যদি থাকে তাহলে post_save already count করেছে
+#             other_purchase_count = Purchase.objects.filter(
+#                 purchaseitem=item
+#             ).exclude(pk=instance.pk).count()
+
+#             if other_purchase_count > 0:
+#                 continue  # already counted, skip
+
+#             # Fresh link — stock update
+#             fresh = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+#             variation.__class__.objects.filter(pk=variation.pk).update(
+#                 quantity=fresh.quantity + item.qty
+#             )
+
+#             # unick keys sync
+#             if getattr(variation, 'isunck', False):
+#                 keys = list(item.unickkey.all())
+#                 if keys:
+#                     variation.unickkey.add(*keys)
+
+
+
+
+
+# from django.db.models.signals import pre_save, post_save, post_delete, m2m_changed
+# from django.dispatch import receiver
+# from django.db import transaction
+
+
+# # ════════════════════════════════════════════════════════
+# # HELPERS
+# # ════════════════════════════════════════════════════════
+
+# def _get_old(instance):
+#     if not instance.pk:
+#         return None
+#     try:
+#         return instance.__class__.objects.get(pk=instance.pk)
+#     except instance.__class__.DoesNotExist:
+#         return None
+
+
+# def _safe_bool(value):
+#     if isinstance(value, bool):
+#         return value
+#     if isinstance(value, int):
+#         return value == 1
+#     if isinstance(value, str):
+#         return value.strip().lower() in ("true", "1", "yes")
+#     return False
+
+
+# def _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids_to_remove):
+#     """
+#     variation থেকে key_ids_to_remove remove করবে,
+#     কিন্তু যেগুলো অন্য active PurchaseItem-এ এখনও use হচ্ছে সেগুলো remove করবে না।
+#     """
+#     if not variation or not key_ids_to_remove:
+#         return
+
+#     other_key_ids = set(
+#         PurchaseItem.objects.filter(
+#             purchase_product_variation=variation,
+#             is_deleted=False,
+#         ).exclude(
+#             pk=exclude_item_pk
+#         ).values_list("unickkey__id", flat=True)
+#     )
+
+#     safely_removable = set(key_ids_to_remove) - other_key_ids
+#     safely_removable.discard(None)
+
+#     if safely_removable:
+#         variation.unickkey.remove(*safely_removable)
+
+
+# def _safe_remove_unick_keys(variation, exclude_item_pk, keys):
+#     key_ids = {k.id for k in keys if getattr(k, "id", None)}
+#     _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids)
+
+
+# def _apply_stock_delta(variation_model, variation_id, delta):
+#     """
+#     variation.quantity += delta
+#     negative হলে 0 এর নিচে নামতে দেবে না
+#     """
+#     if not variation_id or delta == 0:
+#         return
+
+#     with transaction.atomic():
+#         fresh = variation_model.objects.select_for_update().get(pk=variation_id)
+#         new_qty = (fresh.quantity or 0) + delta
+#         if new_qty < 0:
+#             new_qty = 0
+#         variation_model.objects.filter(pk=variation_id).update(quantity=new_qty)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 1 — PurchaseItem pre_save
+# # পুরনো state snapshot
+# # ════════════════════════════════════════════════════════
+
+# @receiver(pre_save, sender=PurchaseItem)
+# def purchaseitem_pre_save(sender, instance, **kwargs):
+#     old = _get_old(instance)
+
+#     if old is None:
+#         instance._is_new = True
+#         instance._old_qty = 0
+#         instance._old_is_deleted = False
+#         instance._old_variation_id = None
+#         instance._old_unick_ids = set()
+#     else:
+#         instance._is_new = False
+#         instance._old_qty = old.qty or 0
+#         instance._old_is_deleted = bool(getattr(old, "is_deleted", False))
+#         instance._old_variation_id = getattr(old, "purchase_product_variation_id", None)
+#         instance._old_unick_ids = set(old.unickkey.values_list("id", flat=True))
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 2 — PurchaseItem post_save
+# # qty / variation move / soft delete / restore সব handle
+# # ════════════════════════════════════════════════════════
+
+# @receiver(post_save, sender=PurchaseItem)
+# def purchaseitem_post_save(sender, instance, created, **kwargs):
+#     new_variation = instance.purchase_product_variation
+#     new_variation_id = getattr(instance, "purchase_product_variation_id", None)
+
+#     old_variation_id = getattr(instance, "_old_variation_id", None)
+#     old_qty = getattr(instance, "_old_qty", 0)
+#     old_is_deleted = getattr(instance, "_old_is_deleted", False)
+#     is_new = getattr(instance, "_is_new", False)
+
+#     new_qty = instance.qty or 0
+#     new_is_deleted = bool(getattr(instance, "is_deleted", False))
+
+#     variation_model = None
+#     if new_variation is not None:
+#         variation_model = new_variation.__class__
+#     elif old_variation_id:
+#         variation_model = Variation
+
+#     if variation_model is None:
+#         return
+
+#     # ─── STOCK SYNC ─────────────────────────────────────
+#     if is_new:
+#         # new item create
+#         if new_variation_id and not new_is_deleted:
+#             _apply_stock_delta(variation_model, new_variation_id, new_qty)
+
+#     else:
+#         # variation changed
+#         if old_variation_id != new_variation_id:
+#             # old variation থেকে reverse
+#             if old_variation_id and not old_is_deleted:
+#                 _apply_stock_delta(variation_model, old_variation_id, -old_qty)
+
+#             # new variation এ apply
+#             if new_variation_id and not new_is_deleted:
+#                 _apply_stock_delta(variation_model, new_variation_id, new_qty)
+
+#         else:
+#             # same variation, normal delta logic
+#             if new_variation_id:
+#                 if not old_is_deleted and not new_is_deleted:
+#                     # normal qty change
+#                     _apply_stock_delta(variation_model, new_variation_id, new_qty - old_qty)
+
+#                 elif not old_is_deleted and new_is_deleted:
+#                     # soft delete
+#                     _apply_stock_delta(variation_model, new_variation_id, -old_qty)
+
+#                 elif old_is_deleted and not new_is_deleted:
+#                     # restore
+#                     _apply_stock_delta(variation_model, new_variation_id, new_qty)
+
+#                 # old deleted -> new deleted হলে no-op
+
+#     # ─── UNIQUE KEY SYNC ────────────────────────────────
+#     # variation change হলে old variation থেকে old keys safe remove করতে হবে
+#     # এবং new variation এ current keys add করতে হবে
+#     def _sync_variation_keys_after_commit():
+#         current_key_ids = set(instance.unickkey.values_list("id", flat=True))
+#         old_key_ids = set(getattr(instance, "_old_unick_ids", set()) or set())
+
+#         # old variation cleanup
+#         if old_variation_id and old_variation_id != new_variation_id:
+#             try:
+#                 old_variation = Variation.objects.get(pk=old_variation_id)
+#                 if getattr(old_variation, "isunck", False) and old_key_ids:
+#                     _safe_remove_unick_keys_by_ids(old_variation, instance.pk, old_key_ids)
+#             except Variation.DoesNotExist:
+#                 pass
+
+#         # new variation add
+#         if new_variation_id and not new_is_deleted:
+#             try:
+#                 current_variation = Variation.objects.get(pk=new_variation_id)
+#                 if getattr(current_variation, "isunck", False) and current_key_ids:
+#                     current_variation.unickkey.add(*current_key_ids)
+#             except Variation.DoesNotExist:
+#                 pass
+
+#     transaction.on_commit(_sync_variation_keys_after_commit)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 3 — PurchaseItem post_delete
+# # hard delete হলে stock reverse
+# # ════════════════════════════════════════════════════════
+
+# @receiver(post_delete, sender=PurchaseItem)
+# def purchaseitem_post_delete(sender, instance, **kwargs):
+#     variation = instance.purchase_product_variation
+#     if not variation:
+#         return
+
+#     # already soft-deleted item hard delete হলে আবার minus করা যাবে না
+#     if bool(getattr(instance, "is_deleted", False)):
+#         return
+
+#     with transaction.atomic():
+#         fresh = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+#         new_qty = (fresh.quantity or 0) - (instance.qty or 0)
+#         if new_qty < 0:
+#             new_qty = 0
+#         variation.__class__.objects.filter(pk=variation.pk).update(quantity=new_qty)
+
+#     if getattr(variation, "isunck", False):
+#         keys = list(instance.unickkey.all())
+#         if keys:
+#             _safe_remove_unick_keys(variation, instance.pk, keys)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 4 — PurchaseItem.unickkey M2M changed
+# # add/remove/clear সব handle
+# # ════════════════════════════════════════════════════════
+
+# @receiver(m2m_changed, sender=PurchaseItem.unickkey.through)
+# def purchaseitem_unickkey_changed(sender, instance, action, pk_set, **kwargs):
+#     variation = instance.purchase_product_variation
+#     if not variation or not getattr(variation, "isunck", False):
+#         return
+
+#     if not pk_set and action not in ("post_clear",):
+#         return
+
+#     with transaction.atomic():
+#         variation_obj = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+
+#         if action == "post_add":
+#             variation_obj.unickkey.add(*pk_set)
+
+#         elif action == "post_remove":
+#             _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, pk_set)
+
+#         elif action == "post_clear":
+#             old_key_ids = set(getattr(instance, "_old_unick_ids", set()) or set())
+#             if old_key_ids:
+#                 _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, old_key_ids)
+
+
+# # ════════════════════════════════════════════════════════
+# # SIGNAL 5 — Purchase.purchaseitem M2M changed
+# # IMPORTANT: stock update করবে না
+# # কারণ PurchaseItem post_save already stock handle করে
+# # ════════════════════════════════════════════════════════
+
+# @receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+# def purchase_purchaseitem_m2m_changed(sender, instance, action, pk_set, **kwargs):
+#     """
+#     এখানে stock touch করা যাবে না।
+#     কারণ PurchaseItem create/update signal already quantity sync করে।
+
+#     এই signal রাখার একটাই কারণ:
+#     future এ link/unlink logging বা validation লাগলে use করা যাবে।
+#     """
+#     return
+
+
+
+
+from django.db.models.signals import pre_save, post_save, post_delete, m2m_changed
 from django.dispatch import receiver
 from django.db import transaction
 
-@receiver(m2m_changed, sender=Purchase.purchaseitem.through)
-def purchase_items_added(sender, instance, action, pk_set, **kwargs):
-    """
-    When Purchase.purchaseitem is changed (items added),
-    update stock and attach unick keys to Variation for isunck=True variations.
-    """
+from .models import Purchase, PurchaseItem, Variation
 
-    # ✅ only after items are added
-    if action != "post_add":
+
+def _get_old(instance):
+    if not instance.pk:
+        return None
+    try:
+        return instance.__class__.objects.get(pk=instance.pk)
+    except instance.__class__.DoesNotExist:
+        return None
+
+
+def _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids_to_remove):
+    if not variation or not key_ids_to_remove:
         return
 
-    # pk_set = which PurchaseItem IDs were newly added
-    if not pk_set:
+    other_key_ids = set(
+        PurchaseItem.objects.filter(
+            purchase_product_variation=variation,
+            is_deleted=False,
+        ).exclude(
+            pk=exclude_item_pk
+        ).values_list("unickkey__id", flat=True)
+    )
+
+    safely_removable = set(key_ids_to_remove) - other_key_ids
+    safely_removable.discard(None)
+
+    if safely_removable:
+        variation.unickkey.remove(*safely_removable)
+
+
+def _safe_remove_unick_keys(variation, exclude_item_pk, keys):
+    key_ids = {k.id for k in keys if getattr(k, "id", None)}
+    _safe_remove_unick_keys_by_ids(variation, exclude_item_pk, key_ids)
+
+
+def _apply_stock_delta(variation_model, variation_id, delta):
+    if not variation_id or delta == 0:
         return
 
-    # ✅ Fetch only newly added items
-    items = PurchaseItem.objects.select_related("purchase_product_variation").filter(pk__in=pk_set)
-
-    # ✅ transaction safety (optional but good)
     with transaction.atomic():
-        for item in items:
-            variation = item.purchase_product_variation
-            if not variation:
-                continue
+        fresh = variation_model.objects.select_for_update().get(pk=variation_id)
+        new_qty = (fresh.quantity or 0) + delta
+        if new_qty < 0:
+            new_qty = 0
+        variation_model.objects.filter(pk=variation_id).update(quantity=new_qty)
 
-            # ✅ Increase stock
-            variation.quantity += item.qty
-            variation.save(update_fields=["quantity"])
 
-            # ✅ Attach unick keys if variation.isunck
-            if getattr(variation, "isunck", False):
-                keys = item.unickkey.all()
-                if keys.exists():
-                    variation.unickkey.add(*keys)
+@receiver(pre_save, sender=PurchaseItem)
+def purchaseitem_pre_save(sender, instance, **kwargs):
+    old = _get_old(instance)
+
+    if old is None:
+        instance._is_new = True
+        instance._old_qty = 0
+        instance._old_is_deleted = False
+        instance._old_variation_id = None
+        instance._old_unick_ids = set()
+    else:
+        instance._is_new = False
+        instance._old_qty = old.qty or 0
+        instance._old_is_deleted = bool(getattr(old, "is_deleted", False))
+        instance._old_variation_id = getattr(old, "purchase_product_variation_id", None)
+        instance._old_unick_ids = set(old.unickkey.values_list("id", flat=True))
+
+
+# @receiver(post_save, sender=PurchaseItem)
+# def purchaseitem_post_save(sender, instance, created, **kwargs):
+#     new_variation = instance.purchase_product_variation
+#     new_variation_id = getattr(instance, "purchase_product_variation_id", None)
+
+#     old_variation_id = getattr(instance, "_old_variation_id", None)
+#     old_qty = getattr(instance, "_old_qty", 0)
+#     old_is_deleted = getattr(instance, "_old_is_deleted", False)
+#     is_new = getattr(instance, "_is_new", False)
+
+#     new_qty = instance.qty or 0
+#     new_is_deleted = bool(getattr(instance, "is_deleted", False))
+
+#     variation_model = None
+#     if new_variation is not None:
+#         variation_model = new_variation.__class__
+#     elif old_variation_id:
+#         variation_model = Variation
+
+#     if variation_model is not None:
+#         if is_new:
+#             if new_variation_id and not new_is_deleted:
+#                 _apply_stock_delta(variation_model, new_variation_id, new_qty)
+#         else:
+#             if old_variation_id != new_variation_id:
+#                 if old_variation_id and not old_is_deleted:
+#                     _apply_stock_delta(variation_model, old_variation_id, -old_qty)
+
+#                 if new_variation_id and not new_is_deleted:
+#                     _apply_stock_delta(variation_model, new_variation_id, new_qty)
+#             else:
+#                 if new_variation_id:
+#                     if not old_is_deleted and not new_is_deleted:
+#                         _apply_stock_delta(variation_model, new_variation_id, new_qty - old_qty)
+#                     elif not old_is_deleted and new_is_deleted:
+#                         _apply_stock_delta(variation_model, new_variation_id, -old_qty)
+#                     elif old_is_deleted and not new_is_deleted:
+#                         _apply_stock_delta(variation_model, new_variation_id, new_qty)
+
+#     def _sync_after_commit():
+#         current_key_ids = set(instance.unickkey.values_list("id", flat=True))
+#         old_key_ids = set(getattr(instance, "_old_unick_ids", set()) or set())
+
+#         if old_variation_id and old_variation_id != new_variation_id:
+#             try:
+#                 old_variation = Variation.objects.get(pk=old_variation_id)
+#                 if getattr(old_variation, "isunck", False) and old_key_ids:
+#                     _safe_remove_unick_keys_by_ids(old_variation, instance.pk, old_key_ids)
+#             except Variation.DoesNotExist:
+#                 pass
+
+#         if new_variation_id and not new_is_deleted:
+#             try:
+#                 current_variation = Variation.objects.get(pk=new_variation_id)
+#                 if getattr(current_variation, "isunck", False) and current_key_ids:
+#                     current_variation.unickkey.add(*current_key_ids)
+#             except Variation.DoesNotExist:
+#                 pass
+
+#         # soft delete হলে সব parent Purchase থেকে unlink
+#         if not old_is_deleted and new_is_deleted:
+#             for purchase in Purchase.objects.filter(purchaseitem=instance):
+#                 purchase.purchaseitem.remove(instance)
+
+#     transaction.on_commit(_sync_after_commit)
+
+
+@receiver(post_save, sender=PurchaseItem)
+def purchaseitem_post_save(sender, instance, created, **kwargs):
+    new_variation = instance.purchase_product_variation
+    new_variation_id = getattr(instance, "purchase_product_variation_id", None)
+
+    old_variation_id = getattr(instance, "_old_variation_id", None)
+    old_qty = getattr(instance, "_old_qty", 0)
+    old_is_deleted = getattr(instance, "_old_is_deleted", False)
+    is_new = getattr(instance, "_is_new", False)
+
+    new_qty = instance.qty or 0
+    new_is_deleted = bool(getattr(instance, "is_deleted", False))
+
+    variation_model = None
+    if new_variation is not None:
+        variation_model = new_variation.__class__
+    elif old_variation_id:
+        variation_model = Variation
+
+    # ─── QTY / STOCK SYNC ─────────────────────────────────────
+    if variation_model is not None:
+        if is_new:
+            if new_variation_id and not new_is_deleted:
+                _apply_stock_delta(variation_model, new_variation_id, new_qty)
+        else:
+            if old_variation_id != new_variation_id:
+                if old_variation_id and not old_is_deleted:
+                    _apply_stock_delta(variation_model, old_variation_id, -old_qty)
+
+                if new_variation_id and not new_is_deleted:
+                    _apply_stock_delta(variation_model, new_variation_id, new_qty)
+            else:
+                if new_variation_id:
+                    if not old_is_deleted and not new_is_deleted:
+                        _apply_stock_delta(variation_model, new_variation_id, new_qty - old_qty)
+                    elif not old_is_deleted and new_is_deleted:
+                        _apply_stock_delta(variation_model, new_variation_id, -old_qty)
+                    elif old_is_deleted and not new_is_deleted:
+                        _apply_stock_delta(variation_model, new_variation_id, new_qty)
+
+    # ─── UNIQUE KEY + PARENT PURCHASE UNLINK SYNC ─────────────────────────
+    def _sync_after_commit():
+        current_key_ids = set(instance.unickkey.values_list("id", flat=True))
+        old_key_ids = set(getattr(instance, "_old_unick_ids", set()) or set())
+
+        # variation change হলে old variation থেকে old keys safe remove
+        if old_variation_id and old_variation_id != new_variation_id:
+            try:
+                old_variation = Variation.objects.get(pk=old_variation_id)
+                if getattr(old_variation, "isunck", False) and old_key_ids:
+                    _safe_remove_unick_keys_by_ids(old_variation, instance.pk, old_key_ids)
+            except Variation.DoesNotExist:
+                pass
+
+        # same variation + soft delete হলে old keys remove
+        if old_variation_id and old_variation_id == new_variation_id and not old_is_deleted and new_is_deleted:
+            try:
+                same_variation = Variation.objects.get(pk=old_variation_id)
+                if getattr(same_variation, "isunck", False) and old_key_ids:
+                    _safe_remove_unick_keys_by_ids(same_variation, instance.pk, old_key_ids)
+            except Variation.DoesNotExist:
+                pass
+
+        # restore / new / moved-to-new-variation হলে current keys add
+        if new_variation_id and not new_is_deleted:
+            try:
+                current_variation = Variation.objects.get(pk=new_variation_id)
+                if getattr(current_variation, "isunck", False) and current_key_ids:
+                    current_variation.unickkey.add(*current_key_ids)
+            except Variation.DoesNotExist:
+                pass
+
+        # soft delete হলে unlink + item-এর own keys clear
+        if not old_is_deleted and new_is_deleted:
+            for purchase in Purchase.objects.filter(purchaseitem=instance):
+                purchase.purchaseitem.remove(instance)
+
+            if old_key_ids:
+                instance.unickkey.clear()
+
+    transaction.on_commit(_sync_after_commit)
+
+@receiver(post_delete, sender=PurchaseItem)
+def purchaseitem_post_delete(sender, instance, **kwargs):
+    variation = instance.purchase_product_variation
+    if not variation:
+        return
+
+    if bool(getattr(instance, "is_deleted", False)):
+        return
+
+    with transaction.atomic():
+        fresh = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+        new_qty = (fresh.quantity or 0) - (instance.qty or 0)
+        if new_qty < 0:
+            new_qty = 0
+        variation.__class__.objects.filter(pk=variation.pk).update(quantity=new_qty)
+
+    if getattr(variation, "isunck", False):
+        keys = list(instance.unickkey.all())
+        if keys:
+            _safe_remove_unick_keys(variation, instance.pk, keys)
+
+
+@receiver(m2m_changed, sender=PurchaseItem.unickkey.through)
+def purchaseitem_unickkey_changed(sender, instance, action, pk_set, **kwargs):
+    variation = instance.purchase_product_variation
+    if not variation or not getattr(variation, "isunck", False):
+        return
+
+    if bool(getattr(instance, "is_deleted", False)):
+        return
+
+    if action == "pre_clear":
+        instance._preclear_unick_ids = set(instance.unickkey.values_list("id", flat=True))
+        return
+
+    if not pk_set and action not in ("post_clear",):
+        return
+
+    with transaction.atomic():
+        variation_obj = variation.__class__.objects.select_for_update().get(pk=variation.pk)
+
+        if action == "post_add":
+            variation_obj.unickkey.add(*pk_set)
+
+        elif action == "post_remove":
+            _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, pk_set)
+
+        elif action == "post_clear":
+            old_key_ids = set(getattr(instance, "_preclear_unick_ids", set()) or set())
+            if old_key_ids:
+                _safe_remove_unick_keys_by_ids(variation_obj, instance.pk, old_key_ids)
+
+
+@receiver(m2m_changed, sender=Purchase.purchaseitem.through)
+def purchase_purchaseitem_m2m_changed(sender, instance, action, pk_set, **kwargs):
+    return

@@ -362,31 +362,6 @@ class unick(Common):
 
 # # ------------------ VARIATION ------------------
 
-
-
-# class Variation(Common):
-#     product_name = models.ForeignKey(
-#         Product,
-#         on_delete=models.CASCADE,
-#         related_name="variations"
-#     )
-
-#     name = models.CharField(max_length=300, blank=True)
-#     sku_suffix = models.CharField(max_length=50, blank=True)
-
-#     price = models.DecimalField(max_digits=15, decimal_places=2)
-#     quantity = models.PositiveIntegerField(default=0)
-#     dealer_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-#     isunck = models.BooleanField(default=False)
-#     unickkey = models.ManyToManyField(unick, blank=True)
-
-#     class Meta:
-#         ordering = ["id"]
-
-#     def __str__(self):
-#         return f"{self.product_name.name} - {self.name}"
-
-
 class Variation(Common):
     product_name = models.ForeignKey(
         Product,
@@ -439,6 +414,31 @@ class Variation(Common):
 
     def __str__(self):
         return f"{self.product_name.name} - {self.name}"
+
+
+
+# class Variation(Common):
+#     product_name = models.ForeignKey(
+#         Product,
+#         on_delete=models.CASCADE,
+#         related_name="variations"
+#     )
+
+#     name = models.CharField(max_length=300, blank=True)
+#     sku_suffix = models.CharField(max_length=50, blank=True)
+
+#     price = models.DecimalField(max_digits=15, decimal_places=2)
+#     quantity = models.PositiveIntegerField(default=0)
+#     dealer_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+#     isunck = models.BooleanField(default=False)
+#     unickkey = models.ManyToManyField(unick, blank=True)
+
+#     class Meta:
+#         ordering = ["id"]
+
+#     def __str__(self):
+#         return f"{self.product_name.name} - {self.name}"
+
 
 # # ------------------ VARIATION ATTRIBUTE VALUE ------------------
 

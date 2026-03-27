@@ -67,7 +67,7 @@ class PurchaseAdminForm(forms.ModelForm):
 @admin.register(Purchase)
 class PurchaseAdmin(ModelAdmin):
     
-    list_display = ['supplier_name', 'purchase_date', 'total_amount', 'purchase_status']
+    list_display = ['id','supplier_name', 'purchase_date', 'total_amount', 'purchase_status']
     list_filter = ['purchase_status', 'purchase_date']
     filter_horizontal = ("purchaseitem",)
 
@@ -75,6 +75,7 @@ class PurchaseAdmin(ModelAdmin):
 @admin.register(PurchaseItem)
 class PurchaseItemAdmin(ModelAdmin):
     form = PurchaseItemAdminForm
+    
     filter_horizontal = ("unickkey",)
 
     class Media:
@@ -111,8 +112,8 @@ class PurchaseItemAdmin(ModelAdmin):
 
 @admin.register(Cheque)
 class ChequeAdmin(ModelAdmin):
-    list_display = ['cheque_number', 'customer_name', 'loan_name', 'cheque_status']
-    search_fields = ['cheque_number', 'customer_name__name', 'cheque_status']
+    list_display = ['id','cheque_number', 'customer_name', 'loan_name', 'cheque_status']
+    search_fields = ['id','cheque_number', 'customer_name__name', 'cheque_status']
     list_filter = ['cheque_status']
 
 # @admin.register(AffiliateCommission)
@@ -122,21 +123,21 @@ class ChequeAdmin(ModelAdmin):
 #     list_filter = ['affiliate_status']
 @admin.register(LoanType)
 class LoanTypeAdmin(ModelAdmin):
-    list_display = ['name', 'behaviour_type']
-    search_fields = ['name', 'behaviour_type']
+    list_display = ['id','name', 'behaviour_type']
+    search_fields = ['id','name', 'behaviour_type']
     list_filter = ['behaviour_type']
 
 
 @admin.register(InstallmentType)
 class InstallmentTypeAdmin(ModelAdmin):
-    list_display = ['type', 'instalment_cullect', 'total_duration']
-    search_fields = ['type']
+    list_display = ['id','type', 'instalment_cullect', 'total_duration']
+    search_fields = ['id','type']
     list_filter = ['type']
 
 @admin.register(DailySaving)
 class DailySavingAdmin(ModelAdmin):
-    list_display = ('customer_name', 'amount', 'received_by', 'branch_name', 'area_name')  # Fields to display
-    search_fields = ('customer_name__name', 'branch_name__name', 'area_name__name')  # Searchable fields
+    list_display = ('id','customer_name', 'amount', 'received_by', 'branch_name', 'area_name')  # Fields to display
+    search_fields = ('id','customer_name__name', 'branch_name__name', 'area_name__name')  # Searchable fields
     list_filter = ('branch_name', 'area_name')  # Fields to filter by
     ordering = ('amount',)
 
@@ -144,6 +145,7 @@ class DailySavingAdmin(ModelAdmin):
 @admin.register(DownPayment)
 class DownPaymentAdmin(ModelAdmin):
     list_display = (
+        'id',
         'title',
         'ispercentage',
         'amount_or_percentage',
@@ -159,20 +161,21 @@ class DownPaymentAdmin(ModelAdmin):
 
     search_fields = (
         'title',
+        'id',
     )
 
     ordering = ('amount_or_percentage',)
 
 @admin.register(Installment)
 class InstallmentAdmin(ModelAdmin):
-    list_display = ['customer_name', 'installment_date', 'amount', 'received_by', 'installment_status']
-    search_fields = ['customer_name__full_name', 'customer_name__mobile_number']
+    list_display = ['id','customer_name', 'installment_date', 'amount', 'received_by', 'installment_status']
+    search_fields = ['id','customer_name__full_name', 'customer_name__mobile_number']
     list_filter = ['installment_status', 'installment_date']
 
 @admin.register(Loan)
 class LoanAdmin(ModelAdmin):
-    list_display = ['customer_name', 'receive_type', 'amount', 'loan_type', 'pay_from_account', 'installment_type']
-    search_fields = ['customer_name__full_name', 'customer_name__mobile_number', 'loan_type__name']
+    list_display = [ 'id', 'customer_name', 'receive_type', 'amount', 'loan_type', 'pay_from_account', 'installment_type']
+    search_fields = ['id', 'customer_name__full_name', 'customer_name__mobile_number', 'loan_type__name']
     list_filter = ['receive_type', 'pay_from_account', 'loan_type', 'installment_type']
     filter_horizontal = ['installment']  # for ManyToMany field
 
@@ -185,7 +188,7 @@ class TransectionAdmin(ModelAdmin):
     list_filter = ('transection_type', 'customer_name', 'received_by')
     
     # Search bar functionality
-    search_fields = ('customer_name', 'transection_type', 'amount')
+    search_fields = ('id', 'customer_name', 'transection_type', 'amount')
     
     # Ordering of the records (optional)
     ordering = ['-created_at']

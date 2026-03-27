@@ -19,7 +19,7 @@ class ContactAdmin(ModelAdmin):
 
 @admin.register(CustomerType)
 class CustomerTypeAdmin(ModelAdmin):
-    list_display = ['name', 'behaviour_type']
+    list_display = ['id','name', 'behaviour_type']
     search_fields = ["id",'name', 'behaviour_type']
     list_filter = ['behaviour_type']
 

@@ -64,10 +64,16 @@ class PurchaseItem(Common):
     )
 
     # 🔥 NEW
-    unickkey = models.ManyToManyField(unick, blank=True)
+    unickkey = models.ManyToManyField(unick, blank=True, verbose_name="Unique Identifiers")
 
     qty = models.PositiveIntegerField(verbose_name="Quantity")
 
+    unit_price = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2,
+        verbose_name="Unit Price",
+        
+    )
 
     history = HistoricalRecords()
 
@@ -90,13 +96,13 @@ class Purchase(Common):
         related_name='purchases',
         verbose_name="Supplier"
     )
-    purchaseitem=models.ManyToManyField(PurchaseItem,blank=True)
+    purchaseitem=models.ManyToManyField(PurchaseItem,blank=True )
     
 
-    purchase_date = models.DateField()
-    total_amount = models.DecimalField(max_digits=15, decimal_places=2)
-    purchase_status = models.CharField(max_length=20)
-    vendor_cheque_details = models.TextField(blank=True, null=True)
+    purchase_date = models.DateField( verbose_name="Purchase Date")
+    total_amount = models.DecimalField(max_digits=15, decimal_places=2 , verbose_name="Total Amount")
+    purchase_status = models.CharField(max_length=20 , verbose_name="Purchase Status")
+    vendor_cheque_details = models.TextField(blank=True, null=True , verbose_name="Vendor Cheque Details")
 
     history = HistoricalRecords()
 

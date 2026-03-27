@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from contacts.models import Contact, Customer
 from contacts.serializers import ContactSerializer, CustomerSerializer
-from products.models import Product
+from products.models import Product, unick
 from products.serializers import ProductSerializer
 from users.models import Area, Branch, Users
 from users.serializers import AreaSerializer, BranchSerializer, UsersSerializer
@@ -11,37 +11,279 @@ from globalapp.serializers import GlobalSerializers
 
 
 
-class PurchaseSerializer(GlobalSerializers):
-    # Writeable fields for POST/PUT
-    supplier_name = serializers.PrimaryKeyRelatedField(queryset=Contact.objects.all(), allow_null=True)
-    branch_name = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.all(), allow_null=True)
+# from rest_framework import serializers
 
-    class Meta:
-        model = Purchase
-        fields = '__all__'
+# class PurchaseSerializer(GlobalSerializers):
+#     purchaseitem = serializers.PrimaryKeyRelatedField(
+#         many=True,
+#         queryset=PurchaseItem.objects.all(),
+#         required=False
+#     )
 
-    def to_representation(self, instance):
-        """Return full nested objects for supplier and branch"""
-        data = super().to_representation(instance)
+#     class Meta:
+#         model = Purchase
+#         fields = "__all__"
 
-        if instance.supplier_name:
-            data['supplier_name'] = ContactSerializer(instance.supplier_name).data
-        if instance.branch_name:
-            data['branch_name'] = BranchSerializer(instance.branch_name).data
+#     def to_internal_value(self, data):
+#         mutable_data = data.copy()
 
-        return data
+#         if hasattr(data, "getlist"):
+#             raw_items = data.getlist("purchaseitem")
+#             raw_items_bracket = data.getlist("purchaseitem[]")
+
+#             final_items = raw_items if raw_items else raw_items_bracket
+
+#             if final_items:
+#                 cleaned = [
+#                     x for x in final_items
+#                     if str(x).strip() not in ("", "null", "undefined")
+#                 ]
+#                 mutable_data.setlist("purchaseitem", cleaned)
+#             elif "purchaseitem" in data or "purchaseitem[]" in data:
+#                 mutable_data.setlist("purchaseitem", [])
+
+#         return super().to_internal_value(mutable_data)
+
+#     def create(self, validated_data):
+#         purchase_items = validated_data.pop("purchaseitem", [])
+#         instance = super().create(validated_data)
+#         instance.purchaseitem.set(purchase_items)
+#         return instance
+
+#     def update(self, instance, validated_data):
+#         purchase_items = validated_data.pop("purchaseitem", None)
+
+#         instance = super().update(instance, validated_data)
+
+#         if purchase_items is not None:
+#             instance.purchaseitem.set(purchase_items)
+
+#         return instance
+
+
+# from rest_framework import serializers
+
+# class PurchaseItemSerializer(GlobalSerializers):
+#     unickkey = serializers.PrimaryKeyRelatedField(
+#         many=True,
+#         queryset=unick.objects.all(),
+#         required=False
+#     )
+
+#     class Meta:
+#         model = PurchaseItem
+#         fields = "__all__"
+
+#     def to_internal_value(self, data):
+#         mutable_data = data.copy()
+
+#         if hasattr(data, "getlist"):
+#             raw_keys = data.getlist("unickkey")
+#             raw_keys_bracket = data.getlist("unickkey[]")
+
+#             final_keys = raw_keys if raw_keys else raw_keys_bracket
+
+#             if final_keys:
+#                 cleaned = [
+#                     x for x in final_keys
+#                     if str(x).strip() not in ("", "null", "undefined")
+#                 ]
+#                 mutable_data.setlist("unickkey", cleaned)
+#             elif "unickkey" in data or "unickkey[]" in data:
+#                 mutable_data.setlist("unickkey", [])
+
+#         return super().to_internal_value(mutable_data)
+
+#     def create(self, validated_data):
+#         unick_ids = validated_data.pop("unickkey", [])
+#         instance = super().create(validated_data)
+#         instance.unickkey.set(unick_ids)
+#         return instance
+
+#     def update(self, instance, validated_data):
+#         unick_ids = validated_data.pop("unickkey", None)
+
+#         instance = super().update(instance, validated_data)
+
+#         if unick_ids is not None:
+#             instance.unickkey.set(unick_ids)
+
+#         return instance
+
+
+
+from rest_framework import serializers
+from .models import Purchase, PurchaseItem, Variation, unick
 
 
 class PurchaseItemSerializer(GlobalSerializers):
-    # Writeable fields for POST/PUT
-    product_name = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
-    purchase_name = serializers.PrimaryKeyRelatedField(queryset=Purchase.objects.all())
+    unickkey = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=unick.objects.all(),
+        required=False
+    )
 
     class Meta:
         model = PurchaseItem
-        fields = '__all__'
+        fields = "__all__"
 
-    
+    def _extract_id_list(self, *field_names):
+        request = self.context.get("request")
+        if not request:
+            return [], False
+
+        data = request.data
+        provided = False
+        raw_values = []
+
+        if hasattr(data, "getlist"):
+            for field_name in field_names:
+                values = data.getlist(field_name)
+                if field_name in data or values:
+                    provided = True
+                raw_values.extend(values)
+        else:
+            for field_name in field_names:
+                if field_name in data:
+                    provided = True
+                    value = data.get(field_name)
+                    if isinstance(value, list):
+                        raw_values.extend(value)
+                    elif value is not None:
+                        raw_values.append(value)
+
+        cleaned = []
+        for value in raw_values:
+            if value in ("", None, "null", "undefined"):
+                continue
+            try:
+                cleaned.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        return cleaned, provided
+
+    def create(self, validated_data):
+        key_ids, key_field_present = self._extract_id_list("unickkey", "unickkey[]")
+        validated_data.pop("unickkey", None)
+
+        instance = super().create(validated_data)
+
+        if key_field_present:
+            instance.unickkey.set(unick.objects.filter(pk__in=key_ids))
+
+        return instance
+
+    def update(self, instance, validated_data):
+        key_ids, key_field_present = self._extract_id_list("unickkey", "unickkey[]")
+        validated_data.pop("unickkey", None)
+
+        instance = super().update(instance, validated_data)
+
+        if key_field_present:
+            instance.unickkey.set(unick.objects.filter(pk__in=key_ids))
+
+        return instance
+
+
+class PurchaseSerializer(GlobalSerializers):
+    purchaseitem = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=PurchaseItem.objects.all(),
+        required=False
+    )
+
+    class Meta:
+        model = Purchase
+        fields = "__all__"
+
+    def _extract_id_list(self, *field_names):
+        request = self.context.get("request")
+        if not request:
+            return [], False
+
+        data = request.data
+        provided = False
+        raw_values = []
+
+        if hasattr(data, "getlist"):
+            for field_name in field_names:
+                values = data.getlist(field_name)
+                if field_name in data or values:
+                    provided = True
+                raw_values.extend(values)
+        else:
+            for field_name in field_names:
+                if field_name in data:
+                    provided = True
+                    value = data.get(field_name)
+                    if isinstance(value, list):
+                        raw_values.extend(value)
+                    elif value is not None:
+                        raw_values.append(value)
+
+        cleaned = []
+        for value in raw_values:
+            if value in ("", None, "null", "undefined"):
+                continue
+            try:
+                cleaned.append(int(value))
+            except (TypeError, ValueError):
+                pass
+
+        return cleaned, provided
+
+    def create(self, validated_data):
+        purchase_item_ids, purchaseitem_field_present = self._extract_id_list(
+            "purchaseitem", "purchaseitem[]"
+        )
+        validated_data.pop("purchaseitem", None)
+
+        instance = super().create(validated_data)
+
+        if purchaseitem_field_present:
+            instance.purchaseitem.set(
+                PurchaseItem.objects.filter(pk__in=purchase_item_ids, is_deleted=False)
+            )
+
+        return instance
+
+    def update(self, instance, validated_data):
+        purchase_item_ids, purchaseitem_field_present = self._extract_id_list(
+            "purchaseitem", "purchaseitem[]"
+        )
+        validated_data.pop("purchaseitem", None)
+
+        instance = super().update(instance, validated_data)
+
+        # VERY IMPORTANT:
+        # field provided হলে exact list set করবে
+        # তাই new item add হবে, removed item remove হবে
+        if purchaseitem_field_present:
+            instance.purchaseitem.set(
+                PurchaseItem.objects.filter(pk__in=purchase_item_ids, is_deleted=False)
+            )
+
+        return instance
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+
+        data["purchaseitem"] = [
+            {
+                "id": item.id,
+                "purchase_product": item.purchase_product.id if item.purchase_product else None,
+                "purchase_product_variation": item.purchase_product_variation.id if item.purchase_product_variation else None,
+                "qty": item.qty,
+                "unit_price": str(item.unit_price),
+                "unickkey": list(item.unickkey.values_list("id", flat=True)),
+                "is_deleted": getattr(item, "is_deleted", False),
+            }
+            for item in instance.purchaseitem.filter(is_deleted=False)
+        ]
+
+        return data
+
 
 
 class PurchaseReturnSerializer(GlobalSerializers):
@@ -294,9 +536,9 @@ class InstallmentSerializer(serializers.ModelSerializer):
 
 
 class LoanSerializer(GlobalSerializers):
-    customer_name_display = serializers.CharField(source='customer_name.full_name', read_only=True)
-    loan_type_name = serializers.CharField(source='loan_type.name', read_only=True)
-    installment_type_name = serializers.CharField(source='installment_type.type', read_only=True)
+    # customer_name_display = serializers.CharField(source='customer_name.full_name', read_only=True)
+    # loan_type_name = serializers.CharField(source='loan_type.name', read_only=True)
+    # installment_type_name = serializers.CharField(source='installment_type.type', read_only=True)
     #installments = InstallmentSerializer(many=True, read_only=True)
 
     class Meta:
